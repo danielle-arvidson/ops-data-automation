@@ -42,6 +42,10 @@ Shared logic is in `stocktools/`, kept separate from the GUI so it can be tested
 - **Pack configurations.** Case counts come only from the 3PL's pack config string (for example `5000E25C1P`), never from dividing order quantities. If there's no readable config, the tool says so rather than guessing.
 - **Case-sold SKUs.** Some products are ordered in cases already. A configurable pattern identifies them so they aren't divided again.
 
+## Power BI
+
+- [Year-end stock take reconciliation](powerbi/stock-take/): tracks every count discrepancy across sites and the 3PL from count to correction, checks posted corrections against the ERP transaction export, and shows stock accuracy by site over time. Includes a synthetic dataset with the report's schema.
+
 ## Excel controls
 
 [Adjustment approval form](templates/make_approval_form.py) is the control document for every manual stock correction: one form per correction, signed by requester, administrator and approver in order. Each line checks itself against the current quarter's finance provision snapshot, kept on a hidden sheet, and shows "In Finance Provision?" before anyone signs. A write-off on a line that's already provided for would count the same loss twice, so the check flags it before the form reaches the approver. The template ([`adjustment_approval_form.xlsx`](templates/adjustment_approval_form.xlsx)) is built by the script so the formulas can be read, and its provision rows are synthetic.
