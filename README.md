@@ -29,7 +29,7 @@ The tools are used by the supply chain team.
 | 3rd | Over 2 years no use | Received over 24 months ago, not used in the last 24 months |
 | 4th | Slow-moving | Received over 12 months ago, not used in the last 12 months |
 
-Qualifying lines are then excluded if they're in a disposal bin, a quarantine, shop-floor or maintenance warehouse, already on an open stock disposal form, or have any planned use. Planned use takes out the whole line, not just the planned quantity, because a partly used line isn't obsolete. The output gives the total, a breakdown by criterion and by exclusion rule, and movement against the prior re-run. The breakdowns are checked to tie back to the total before anything is reported.
+Qualifying lines are then excluded if they're in a disposal bin, a quarantine, shop-floor or maintenance warehouse, already on an open stock disposal form, or have any planned use. Planned use takes out the whole line, not just the planned quantity, which is Finance's standard basis. The output gives the total, a breakdown by criterion and by exclusion rule, and movement against the prior re-run. The breakdowns are checked to tie back to the total before anything is reported.
 
 In production this runs as an Excel formula over the ERP's aged stock export. The Python version shows the same logic in testable form.
 
