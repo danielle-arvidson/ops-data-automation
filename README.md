@@ -82,7 +82,7 @@ These work in Outlook, SharePoint and the shared drive, and the data request que
 
 ## Case studies
 
-[Write-ups](case-studies/) of work that can't be published as code: a cycle count coverage review, requirements extraction for the SAP migration, a packing spec review checklist, an audit gap analysis, rules for AI use on controlled data, and role training documentation.
+[Write-ups](case-studies/) of work that can't be published as code: a cycle count coverage review, requirements extraction for the SAP migration, a packing spec review checklist, an audit gap analysis, rules for AI use on controlled data, and training and onboarding.
 
 ## Running it
 

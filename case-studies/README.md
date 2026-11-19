@@ -45,8 +45,14 @@ Status: delivered and in use.
 
 I use AI assistants for checks on stock, bills of materials and packing specs, where a wrong number can end up in an audited record. I went back through past sessions, found six confirmed errors and one inferred one (for example, comparing quantities before establishing the unit basis, and treating one document as the full population), and turned each into a rule the assistant has to follow. The rules cover stating sources and arithmetic for every figure, putting assumptions above the output, never deriving case sizes by dividing quantities, and stopping when an input is missing. They now govern my day-to-day AI use, and I wrote a reusable prompt so the same rules can be set up for other work.
 
-## Training documentation
+## Training and onboarding
 
-Status: documents produced.
+Status: delivered, except where noted.
 
-I rewrote training for two roles from inherited notebooks into structured guides with procedures, checklists and quick references: the ERP data analyst role (part creation, method changes, packing specs, monthly reports, housekeeping) and the supply chain coordinator role. I also wrote a standalone guide to making method changes in Epicor's Engineering Workbench, covering machine changes, alternate method deletion and tool changes, with a troubleshooting table.
+I learned the supply chain coordinator role from trainee notes, then turned those notes into the team's working documentation: SOPs for receipting, pack-out, ordering stock to sites, material transfers and movement requests, plus a single flow chart of how goods move inbound, between sites, outbound and through non-conformance.
+
+When a new coordinator started in April 2026, I built and ran the onboarding programme: a training plan, weekly pre-reading packs and a first-day system orientation. For the live sessions I used a paired format, with a trainer script beside a learner desk reference, using real inbox emails as the cases. When the learner kept mixing up factory orders and transfer orders, I wrote a three-question decision framework for choosing the right stock movement, and cut that session down to fit.
+
+I also rewrote training for the ERP data analyst role (part creation, method changes, packing specs, monthly reports, housekeeping) and wrote a standalone guide to method changes in Epicor's Engineering Workbench. Separately, I designed a six-document coordinator curriculum with a glossary, quick reference cards and a scenario question bank; that one was proposed and not issued.
+
+Because training material can look like procedure to an auditor, I raised the risk with Quality myself. My materials now carry an "information only, not a controlled document" label, so they can't be mistaken for controlled work instructions.
