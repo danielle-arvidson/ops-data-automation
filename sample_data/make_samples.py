@@ -29,6 +29,21 @@ ERP_ORDER = [
     ("009004", "N/A", "Example Healthcare Ltd", "10"),
 ]
 
+AGED_STOCK = [
+    # part, lot, site, warehouse_type, bin, expires, first_receipt, last_used, planned_use, value
+    ("009101", "L001", "Site C", "Stores", "A1", "", "01/03/2026", "15/09/2026", 0, 100.00),
+    ("009102", "L002", "Site A", "Stores", "A2", "01/03/2027", "01/01/2026", "01/09/2026", 0, 200.00),
+    ("009103", "L003", "Site A", "Stores", "A3", "30/09/2027", "01/01/2026", "01/09/2026", 0, 50.00),
+    ("009104", "L004", "Site A", "Stores", "A4", "", "01/05/2023", "01/01/2024", 0, 300.00),
+    ("009105", "L005", "Site B", "Stores", "B1", "", "01/03/2025", "", 0, 400.00),
+    ("009106", "L006", "Site B", "Stores", "B2", "", "01/06/2025", "01/08/2025", 10, 150.00),
+    ("009107", "L007", "Site A", "Stores", "DISPOSAL", "", "01/01/2023", "", 0, 80.00),
+    ("009108", "L008", "Site B", "Quarantine", "Q1", "", "01/01/2024", "", 0, 60.00),
+    ("009109", "L009", "Site A", "Stores", "A5", "", "01/02/2025", "", 0, 70.00),
+    ("009110", "L010", "Site A", "Stores", "A6", "", "01/01/2025", "01/08/2026", 0, 500.00),
+    ("009111", "L011", "Site B", "Stores", "B3", "", "01/01/2026", "", 0, 90.00),
+]
+
 ERP_SHIP_OLD = [("009001", "045120", "1000", "50101/1/1"), ("0361", "097709", "200", "50102/2/1")]
 ERP_SHIP_NEW = [("009001", "045120", "600", "50240/1/1"), ("009002", "045300", "100", "50241/3/2")]
 
@@ -52,6 +67,12 @@ def main():
             w = csv.writer(f)
             w.writerow(["PartNum", "LotNum", "Quantity", "Reference"])
             w.writerows(rows)
+
+    with open(os.path.join(HERE, "aged_stock_sample.csv"), "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["part", "lot", "site", "warehouse_type", "bin", "expires",
+                    "first_receipt", "last_used", "planned_use", "value"])
+        w.writerows(AGED_STOCK)
 
     wb = Workbook()
     ws = wb.active

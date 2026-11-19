@@ -18,6 +18,21 @@ This repo is a sanitised copy. Company names, file paths, account codes and real
 
 The tools are used by the supply chain team.
 
+### Stock provision re-run
+
+[`stocktools/provision.py`](stocktools/provision.py) is the quarter-end stock provision calculation I run for Finance. Every stock line is re-classified against the criteria as at quarter-end, rather than rolling the previous balance forward:
+
+| Order | Criterion | Rule (rolling from quarter-end) |
+|---|---|---|
+| 1st | Site provision | Line sits at a site flagged for full provision, for example one being closed |
+| 2nd | Expiry | Expires within 12 months |
+| 3rd | Over 2 years no use | Received over 24 months ago, not used in the last 24 months |
+| 4th | Slow-moving | Received over 12 months ago, not used in the last 12 months |
+
+Qualifying lines are then excluded if they're in a disposal bin, a quarantine, shop-floor or maintenance warehouse, already on an open stock disposal form, or have any planned use. Planned use takes out the whole line, not just the planned quantity, because a partly used line isn't obsolete. The output gives the total, a breakdown by criterion and by exclusion rule, and movement against the prior re-run. The breakdowns are checked to tie back to the total before anything is reported.
+
+In production this runs as an Excel formula over the ERP's aged stock export. The Python version shows the same logic in testable form.
+
 Shared logic is in `stocktools/`, kept separate from the GUI so it can be tested.
 
 ### Things the code handles that the manual process kept getting wrong

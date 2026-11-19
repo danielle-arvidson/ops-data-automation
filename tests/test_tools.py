@@ -119,3 +119,32 @@ def test_packout(tmp_path):
     assert df["SO"].tolist() == ["50240", "50101", "50102", "50241", "NOT FOUND", "49999"]
     assert df.loc[3, "Line"] == "3" and df.loc[3, "Rel"] == "2"
     assert (result["matched"], result["not_found"], result["skipped"]) == (4, 1, 1)
+
+
+from stocktools import provision  # noqa: E402
+
+
+def test_provision_rerun():
+    stock = pd.read_csv(os.path.join(SAMPLES, "aged_stock_sample.csv"), dtype=str)
+    df, summary = provision.rerun(stock, "2026-09-30", provision_sites=["Site C"],
+                                  open_disposal_lots=[("009109", "L009")])
+    got = dict(zip(df["part"], df["criterion"]))
+    assert got["009101"] == "4 - Site provision"
+    assert got["009102"] == got["009103"] == "1 - Expires within 12m"
+    assert got["009104"] == got["009107"] == "3 - Over 2yr no use"
+    assert got["009105"] == got["009106"] == "2 - SLOB"
+    assert got["009110"] == got["009111"] == "None"
+    excl = dict(zip(df["part"], df["excluded_by"]))
+    assert excl["009106"] == "Planned use"
+    assert excl["009107"] == "Disposal bin"
+    assert excl["009108"] == "Quarantine warehouse"
+    assert excl["009109"] == "Open disposal form"
+    assert summary["total_value"] == 1050.00
+    assert (summary["lines_included"], summary["lines_excluded"]) == (5, 4)
+    assert summary["criteria_dates"] == {"expiry_by": "2027-09-30", "slob_before": "2025-09-30",
+                                         "no_use_2yr_before": "2024-09-30"}
+
+
+def test_provision_movement():
+    assert provision.movement(1050.0, 1200.0) == {
+        "prior": 1200.0, "current": 1050.0, "change": -150.0, "change_pct": -12.5}
