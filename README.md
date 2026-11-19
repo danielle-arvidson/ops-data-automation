@@ -28,7 +28,7 @@ Shared logic is in `stocktools/`, kept separate from the GUI so it can be tested
 These work in Outlook, SharePoint and the shared drive. Neither one connects to the ERP.
 
 - [3PL report filing](power-automate/3pl-report-filing/): a Power Automate Desktop flow that files a dozen daily and weekly 3PL report types from a shared inbox into dated folders.
-- [Data request intake](power-automate/data-request-intake/): Microsoft Form, SharePoint List and four cloud flows that replaced email and Teams requests to the master data team with a single tracked queue.
+- [Data request intake](power-automate/data-request-intake/): Microsoft Form, SharePoint List and four cloud flows (intake, quality-system follow-ups, assignment and completion emails, lead-time and on-time tracking) that replaced email and Teams requests to the master data team with a single tracked queue.
 
 ## Running it
 

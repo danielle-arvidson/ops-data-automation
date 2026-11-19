@@ -1,0 +1,113 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$authentication": {
+      "defaultValue": {},
+      "type": "SecureObject"
+    },
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "When_a_new_email_arrives_(V3)": {
+      "splitOn": "@triggerOutputs()?['body/value']",
+      "metadata": {
+        "<INBOX_FOLDER_ID>": "Inbox"
+      },
+      "type": "OpenApiConnectionNotification",
+      "inputs": {
+        "parameters": {
+          "from": "notifications@qms.example.com",
+          "includeAttachments": false,
+          "subjectFilter": "DOC-",
+          "folderPath": "<INBOX_FOLDER_ID>"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+          "connectionName": "shared_office365",
+          "operationId": "OnNewEmailV3"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    }
+  },
+  "actions": {
+    "QMS_ref": {
+      "runAfter": {},
+      "type": "Compose",
+      "inputs": "@substring(triggerOutputs()?['body/subject'], indexOf(triggerOutputs()?['body/subject'], 'DOC-'), 9)"
+    },
+    "Get_items": {
+      "runAfter": {
+        "QMS_ref": [
+          "Succeeded"
+        ]
+      },
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "<SITE_URL>",
+          "table": "<LIST_ID>",
+          "$filter": "QMSReference eq '@{outputs('QMS_ref')}' and Status ne 'Done'",
+          "$top": 1
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetItems"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Condition": {
+      "actions": {
+        "Create_item": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "dataset": "<SITE_URL>",
+              "table": "<LIST_ID>",
+              "item/Title": "@concat(outputs('QMS_ref'), ' ERP review')",
+              "item/RequestType/Value": "QMS ERP review",
+              "item/Details": "@triggerOutputs()?['body/subject']",
+              "item/NeededBy": "@if(contains(triggerOutputs()?['body/subject'], 'Assignment to'), parseDateTime(trim(last(split(triggerOutputs()?['body/subject'], ','))), 'en-GB', 'd MMM yyyy'), null)",
+              "item/Status/Value": "New",
+              "item/TargetDate": "@if(contains(triggerOutputs()?['body/subject'], 'Assignment to'), parseDateTime(trim(last(split(triggerOutputs()?['body/subject'], ','))), 'en-GB', 'd MMM yyyy'), null)",
+              "item/ReceivedVia/Value": "QMS",
+              "item/QMSReference": "@outputs('QMS_ref')"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "PostItem"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "runAfter": {
+        "Get_items": [
+          "Succeeded"
+        ]
+      },
+      "else": {
+        "actions": {}
+      },
+      "expression": {
+        "and": [
+          {
+            "equals": [
+              "@length(body('Get_items')?['value'])",
+              0
+            ]
+          }
+        ]
+      },
+      "type": "If"
+    }
+  },
+  "outputs": {}
+}

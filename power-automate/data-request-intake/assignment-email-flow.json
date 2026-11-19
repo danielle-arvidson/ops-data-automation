@@ -1,0 +1,110 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$authentication": {
+      "defaultValue": {},
+      "type": "SecureObject"
+    },
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "When_an_item_or_a_file_is_modified": {
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "evaluatedRecurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "splitOn": "@triggerOutputs()?['body/value']",
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "<SITE_URL>",
+          "table": "<LIST_ID>"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetOnChangedItems"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    }
+  },
+  "actions": {
+    "Get_changes_for_an_item_or_a_file_(properties_only)": {
+      "runAfter": {},
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "<SITE_URL>",
+          "table": "<LIST_ID>",
+          "id": "@triggerBody()?['ID']",
+          "since": "@triggerBody()?['{TriggerWindowStartToken}']",
+          "includeDrafts": false
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetItemChanges"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Condition": {
+      "actions": {
+        "Send_an_email_(V2)": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "emailMessage/To": "@triggerBody()?['AssignedTo/Email']",
+              "emailMessage/Subject": "Data request assigned to you: @{triggerBody()?['Title']}",
+              "emailMessage/Body": "<p class=\"editor-paragraph\">You've been assigned a data request.<br><br>Request: @{triggerBody()?['Title']}<br>Business impact: @{triggerBody()?['BusinessImpact/Value']}<br>Target date: @{triggerBody()?['TargetDate']}<br><br>Open it: @{triggerBody()?['{Link}']}</p>",
+              "emailMessage/Importance": "Normal"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+              "connectionName": "shared_office365",
+              "operationId": "SendEmailV2"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "runAfter": {
+        "Get_changes_for_an_item_or_a_file_(properties_only)": [
+          "Succeeded"
+        ]
+      },
+      "else": {
+        "actions": {}
+      },
+      "expression": {
+        "and": [
+          {
+            "equals": [
+              "@body('Get_changes_for_an_item_or_a_file_(properties_only)')?['ColumnHasChanged']?['AssignedTo']",
+              "@true"
+            ]
+          },
+          {
+            "not": {
+              "equals": [
+                "@triggerBody()?['AssignedTo/Email']",
+                ""
+              ]
+            }
+          }
+        ]
+      },
+      "type": "If"
+    }
+  },
+  "outputs": {}
+}

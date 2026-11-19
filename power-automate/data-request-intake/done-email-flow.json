@@ -1,0 +1,133 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$authentication": {
+      "defaultValue": {},
+      "type": "SecureObject"
+    },
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "When_an_item_or_a_file_is_modified": {
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "evaluatedRecurrence": {
+        "frequency": "Minute",
+        "interval": 1
+      },
+      "splitOn": "@triggerOutputs()?['body/value']",
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "<SITE_URL>",
+          "table": "<LIST_ID>"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetOnChangedItems"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    }
+  },
+  "actions": {
+    "Get_changes_for_an_item_or_a_file_(properties_only)": {
+      "runAfter": {},
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "<SITE_URL>",
+          "table": "<LIST_ID>",
+          "id": "@triggerBody()?['ID']",
+          "since": "@triggerBody()?['{TriggerWindowStartToken}']",
+          "includeDrafts": false
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "GetItemChanges"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Condition": {
+      "actions": {
+        "Send_an_email_(V2)": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "emailMessage/To": "@triggerBody()?['Requester/Email']",
+              "emailMessage/Subject": "Data request completed: @{triggerBody()?['Title']}",
+              "emailMessage/Body": "<p class=\"editor-paragraph\">Your data request has been completed.<br><br>Request: @{triggerBody()?['Title']}<br>Resolution: @{triggerBody()?['ResolutionNotes']}<br><br>Open it: @{triggerBody()?['{Link}']}<br><br>If anything isn't right, please add a comment on the request.<br><br>Data Team</p>",
+              "emailMessage/Importance": "Normal"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+              "connectionName": "shared_office365",
+              "operationId": "SendEmailV2"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "Update_item": {
+          "runAfter": {
+            "Send_an_email_(V2)": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "dataset": "<SITE_URL>",
+              "table": "<LIST_ID>",
+              "id": "@triggerBody()?['ID']",
+              "item/Title": "@triggerBody()?['Title']",
+              "item/ClosedDate": "@utcNow()",
+              "item/Leadtimedays": "@div(sub(ticks(utcNow()), ticks(triggerOutputs()?['body/Created'])), 864000000000)",
+              "item/Ontime": "@if(empty(triggerOutputs()?['body/TargetDate']), false, lessOrEquals(formatDateTime(utcNow(), 'yyyy-MM-dd'), formatDateTime(triggerOutputs()?['body/TargetDate'], 'yyyy-MM-dd')))"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "PatchItem"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "runAfter": {
+        "Get_changes_for_an_item_or_a_file_(properties_only)": [
+          "Succeeded"
+        ]
+      },
+      "else": {
+        "actions": {}
+      },
+      "expression": {
+        "and": [
+          {
+            "equals": [
+              "@body('Get_changes_for_an_item_or_a_file_(properties_only)')?['ColumnHasChanged']?['Status']",
+              "@true"
+            ]
+          },
+          {
+            "equals": [
+              "@triggerBody()?['Status/Value']",
+              "Done"
+            ]
+          }
+        ]
+      },
+      "type": "If"
+    }
+  },
+  "outputs": {}
+}

@@ -5,17 +5,24 @@ Requests for master data work (new parts, part changes, lot fixes, reports) used
 ## How it fits together
 
 ```
-Microsoft Form ──> Power Automate ──> SharePoint List (the queue)
-                                         │
-QMS follow-ups ──> Power Automate ───────┤
-                                         ├──> assignment email to the analyst
-                                         └──> completion email to the requester
+Microsoft Form ------> intake flow -------+
+                                          v
+QMS notification ----> QMS flow -----> SharePoint List (the queue)
+email                                     |
+                                          +--> assignment flow --> email to analyst
+                                          +--> done flow --------> email to requester,
+                                                                   closed date, lead time,
+                                                                   on-time flag
 ```
 
-- **Intake flow:** turns each form response into a list item. Steps are below, and the sanitised definition is in [`intake-flow.json`](intake-flow.json).
-- **QMS follow-up flow:** follow-up work raised from the quality system lands in the same list, so there is one queue rather than two.
-- **Assignment email:** when an item is assigned, the analyst is told what it is and where to find it.
-- **Completion email:** when an item is marked done, the requester is told.
+| Flow | Trigger | Definition |
+|------|---------|------------|
+| Intake | New form response | [`intake-flow.json`](intake-flow.json) |
+| QMS follow-up | Notification email from the quality system | [`qms-followup-flow.json`](qms-followup-flow.json) |
+| Assignment email | List item changed | [`assignment-email-flow.json`](assignment-email-flow.json) |
+| Done email | List item changed | [`done-email-flow.json`](done-email-flow.json) |
+
+The definitions are the flows as exported from Power Automate. Site, list, form and folder IDs, and links, are replaced with placeholders such as `<SITE_URL>`.
 
 Requesters have view-only access to the list, so they can check status without asking.
 
@@ -50,6 +57,30 @@ Details that stop it breaking:
 
 - A blank "Needed by" date is sent as `null`. SharePoint rejects an empty string in a date column, so without this the whole item fails.
 - The confirmation email runs whether the attachment step succeeds or fails. A file that won't copy doesn't stop the requester getting their reference number.
+
+## QMS follow-up flow
+
+Spec changes approved in the quality management system often need matching ERP changes. The QMS sends a notification email for each one, and those were being missed in a busy inbox.
+
+1. **Trigger:** an email from the QMS notification address whose subject contains a document reference (`DOC-`).
+2. **Pull out the reference** (for example `DOC-00316`) from the subject.
+3. **Check for an open item** with that reference. The QMS sends several emails per document as it moves through approval, so without this check one change would become several requests.
+4. **If none is open, create one:** titled `<reference> ERP review`, with the email subject as the details, Received via `QMS`. If the email is an assignment notice, the due date is parsed from the end of the subject (`d MMM yyyy`, UK format) and set as both the needed-by and target date.
+
+## Assignment and done flows
+
+Both trigger on any change to a list item. Firing on every edit would spam people, so each one first asks SharePoint which columns actually changed since the last run, and only acts if its column did.
+
+**Assignment:** if `Assigned to` changed and isn't blank, email the analyst with the request, business impact, target date and a link.
+
+**Done:** if `Status` changed to `Done`:
+1. Email the requester with the resolution notes and a link, asking them to comment on the request if anything isn't right.
+2. Stamp the item with:
+   - **Closed date:** now.
+   - **Lead time (days):** whole days from created to closed, worked out from date ticks.
+   - **On time:** true if closed on or before the target date. Items with no target date are marked false.
+
+The update in step 2 is itself a change to the item, but it doesn't touch `Status`, so the flow doesn't trigger itself again.
 
 ## What it gives the team
 
