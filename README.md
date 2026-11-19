@@ -44,7 +44,7 @@ Shared logic is in `stocktools/`, kept separate from the GUI so it can be tested
 
 ## Excel controls
 
-[Adjustment approval form](templates/make_approval_form.py) is the control document for every manual stock correction: one form per correction, signed by requester, administrator and approver in order. Each line checks itself against the current quarter's finance provision snapshot, kept on a hidden sheet, and shows "In Finance Provision?" before anyone signs. A write-off on a line that's already provided for would count the same loss twice, so the approver sees this up front rather than Finance finding it at quarter-end. The template ([`adjustment_approval_form.xlsx`](templates/adjustment_approval_form.xlsx)) is built by the script so the formulas can be read, and its provision rows are synthetic.
+[Adjustment approval form](templates/make_approval_form.py) is the control document for every manual stock correction: one form per correction, signed by requester, administrator and approver in order. Each line checks itself against the current quarter's finance provision snapshot, kept on a hidden sheet, and shows "In Finance Provision?" before anyone signs. A write-off on a line that's already provided for would count the same loss twice, so the check flags it before the form reaches the approver. The template ([`adjustment_approval_form.xlsx`](templates/adjustment_approval_form.xlsx)) is built by the script so the formulas can be read, and its provision rows are synthetic.
 
 ## Power Automate
 
