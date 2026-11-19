@@ -1,6 +1,6 @@
 # Year-end stock take reconciliation (Power BI)
 
-The annual stock take covers two manufacturing sites and several accounts at the third-party warehouse, ahead of the external audit. This report tracks the reconciliation after the count: what was checked, what differs, what has been corrected, and what is still open and why.
+The annual stock take covers the company's own sites and several accounts at the third-party warehouse, ahead of the external audit. This report tracks the reconciliation after the count: what was checked, what differs, what has been corrected, and what is still open and why.
 
 ## What the data model holds
 
