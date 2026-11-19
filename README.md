@@ -1,8 +1,10 @@
-# Epicor stock tools
+# Ops data automation
 
-Tools I built as Stock and Data Integrity Manager at a UK medical device manufacturer. The business runs on Epicor Kinetic, and finished goods are stored at a third-party logistics (3PL) warehouse that runs its own warehouse system. Most of the daily work sat in the gap between the two: exporting from the ERP, cross-checking against the 3PL's stock report, and retyping the result into the 3PL's spreadsheets.
+Automation I built as Stock and Data Integrity Manager at a UK medical device manufacturer. There are two groups: Python tools for stock work between the ERP and the 3PL warehouse, and Power Automate flows for report filing and data request handling.
 
-These tools remove most of that retyping. They are written for non-technical colleagues: each one is a small desktop window, compiled to a single `.exe` with PyInstaller and run from a shared drive.
+The business runs on Epicor Kinetic, and finished goods are stored at a third-party logistics (3PL) warehouse that runs its own warehouse system. Most of the daily work sat in the gap between the two: exporting from the ERP, cross-checking against the 3PL's stock report, and retyping the result into the 3PL's spreadsheets.
+
+The Python tools remove most of that retyping. They are written for non-technical colleagues: each one is a small desktop window, compiled to a single `.exe` with PyInstaller and run from a shared drive.
 
 This repo is a sanitised copy. Company names, file paths, account codes and real part numbers have been replaced, and everything in `sample_data/` is synthetic.
 
@@ -25,7 +27,7 @@ Shared logic is in `stocktools/`, kept separate from the GUI so it can be tested
 
 ## Power Automate
 
-These work in Outlook, SharePoint and the shared drive. Neither one connects to the ERP.
+These work in Outlook, SharePoint and the shared drive, and the data request queue also picks up notification emails from the quality management system. Neither one connects to the ERP.
 
 - [3PL report filing](power-automate/3pl-report-filing/): a Power Automate Desktop flow that files a dozen daily and weekly 3PL report types from a shared inbox into dated folders.
 - [Data request intake](power-automate/data-request-intake/): Microsoft Form, SharePoint List and four cloud flows (intake, quality-system follow-ups, assignment and completion emails, lead-time and on-time tracking) that replaced email and Teams requests to the master data team with a single tracked queue.
