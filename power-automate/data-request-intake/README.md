@@ -12,7 +12,7 @@ QMS follow-ups ──> Power Automate ───────┤
                                          └──> completion email to the requester
 ```
 
-- **Intake flow:** each form response becomes a list item, with any uploaded evidence attached.
+- **Intake flow:** turns each form response into a list item. Steps are below, and the sanitised definition is in [`intake-flow.json`](intake-flow.json).
 - **QMS follow-up flow:** follow-up work raised from the quality system lands in the same list, so there is one queue rather than two.
 - **Assignment email:** when an item is assigned, the analyst is told what it is and where to find it.
 - **Completion email:** when an item is marked done, the requester is told.
@@ -37,6 +37,19 @@ Two design choices did most of the work:
 
 - **Business impact instead of priority.** Everyone marks their own request high priority. Asking what is actually blocked gives a triage order people can't inflate.
 - **"Anything you've already checked".** This cuts down on back-and-forth before work can start.
+
+## Intake flow, step by step
+
+1. **Trigger:** a new form response.
+2. **Get the response details.**
+3. **Create the list item.** Each answer maps to a column. Status is set to `New` and `Received via` to `Form`, so form requests can be told apart from QMS follow-ups in the same list. The requester is set from the form's signed-in responder, not typed in.
+4. **Attach evidence.** If anything was uploaded, the flow loops through the files, reads each one from the folder where Forms stores uploads, and attaches it to the list item, so the evidence stays with the request.
+5. **Email the requester** with a reference number, their summary, the business impact, a link to a "My requests" view, and a link to the item itself. The email asks them to add questions as comments on the request rather than by email or Teams, so the whole history stays in one place.
+
+Details that stop it breaking:
+
+- A blank "Needed by" date is sent as `null`. SharePoint rejects an empty string in a date column, so without this the whole item fails.
+- The confirmation email runs whether the attachment step succeeds or fails. A file that won't copy doesn't stop the requester getting their reference number.
 
 ## What it gives the team
 

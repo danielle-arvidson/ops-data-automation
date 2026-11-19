@@ -1,0 +1,174 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$authentication": {
+      "defaultValue": {},
+      "type": "SecureObject"
+    },
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "When_a_new_response_is_submitted": {
+      "splitOn": "@triggerOutputs()?['body/value']",
+      "type": "OpenApiConnectionWebhook",
+      "inputs": {
+        "parameters": {
+          "form_id": "<FORM_ID>"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_microsoftforms",
+          "connectionName": "shared_microsoftforms",
+          "operationId": "CreateFormWebhook"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    }
+  },
+  "actions": {
+    "Get_response_details": {
+      "runAfter": {},
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "form_id": "<FORM_ID>",
+          "response_id": "@triggerOutputs()?['body/resourceData/responseId']"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_microsoftforms",
+          "connectionName": "shared_microsoftforms",
+          "operationId": "GetFormResponseById"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Create_item": {
+      "runAfter": {
+        "Get_response_details": [
+          "Succeeded"
+        ]
+      },
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "dataset": "<SITE_URL>",
+          "table": "<LIST_ID>",
+          "item/Title": "@outputs('Get_response_details')?['body/Q1_RequestSummary']",
+          "item/Requester/Claims": "@outputs('Get_response_details')?['body/responder']",
+          "item/RequestType/Value": "@outputs('Get_response_details')?['body/Q2_RequestType']",
+          "item/PartNumbers": "@outputs('Get_response_details')?['body/Q4_PartNumbers']",
+          "item/LotBatch": "@outputs('Get_response_details')?['body/Q5_LotBatch']",
+          "item/Details": "@outputs('Get_response_details')?['body/Q6_Details']",
+          "item/BusinessImpact/Value": "@outputs('Get_response_details')?['body/Q7_BusinessImpact']",
+          "item/NeededBy": "@if(empty(outputs('Get_response_details')?['body/Q8_NeededBy']), null,outputs('Get_response_details')?['body/Q8_NeededBy'])",
+          "item/Status/Value": "New",
+          "item/ReceivedVia/Value": "Form",
+          "item/QMSReference": "@outputs('Get_response_details')?['body/Q3_QMSReference']"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+          "connectionName": "shared_sharepointonline",
+          "operationId": "PostItem"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Send_an_email_(V2)": {
+      "runAfter": {
+        "Condition": [
+          "Succeeded",
+          "Failed"
+        ]
+      },
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "emailMessage/To": "@outputs('Create_item')?['body/Requester/Email']",
+          "emailMessage/Subject": "Data request received: ref #@{outputs('Create_item')?['body/ID']}",
+          "emailMessage/Body": "<p class=\"editor-paragraph\">Your data request has been logged.<br><br>Reference: @{outputs('Create_item')?['body/ID']}<br>Request: @{outputs('Get_response_details')?['body/Q1_RequestSummary']}<br>Business impact: @{outputs('Get_response_details')?['body/Q7_BusinessImpact']}<br><br>You can check its status at any time in <a href=\"<MY_REQUESTS_VIEW_URL>\" class=\"editor-link\">My requests</a>.<br><br>If you have a question or need to add information, please add a comment on the request itself: @{outputs('Create_item')?['body/{Link}']}<br><br>Please don't follow up by email or Teams, so everything stays with the request.<br><br>New to the process? Read the <a href=\"<REQUESTER_GUIDE_URL>\" class=\"editor-link\">requester guide</a>.<br><br>Data Team</p>",
+          "emailMessage/Importance": "Normal"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+          "connectionName": "shared_office365-1",
+          "operationId": "SendEmailV2"
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    },
+    "Condition": {
+      "actions": {
+        "Apply_to_each": {
+          "foreach": "@json(outputs('Get_response_details')?['body/Q9_Evidence'])",
+          "actions": {
+            "Add_attachment": {
+              "runAfter": {
+                "Get_file_content_using_path": [
+                  "Succeeded"
+                ]
+              },
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "<SITE_URL>",
+                  "table": "<LIST_ID>",
+                  "itemId": "@outputs('Create_item')?['body/ID']",
+                  "displayName": "@items('Apply_to_each')?['name']",
+                  "body": "@body('Get_file_content_using_path')"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "CreateAttachment"
+                },
+                "authentication": "@parameters('$authentication')"
+              }
+            },
+            "Get_file_content_using_path": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "<SITE_URL>",
+                  "path": "@concat('/Shared Documents/Apps/Microsoft Forms/Data Request/Question/', items('Apply_to_each')?['name'])",
+                  "inferContentType": true
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "GetFileContentByPath"
+                },
+                "authentication": "@parameters('$authentication')"
+              }
+            }
+          },
+          "type": "Foreach"
+        }
+      },
+      "runAfter": {
+        "Create_item": [
+          "Succeeded"
+        ]
+      },
+      "else": {
+        "actions": {}
+      },
+      "expression": {
+        "and": [
+          {
+            "not": {
+              "equals": [
+                "@outputs('Get_response_details')?['body/Q9_Evidence']",
+                ""
+              ]
+            }
+          }
+        ]
+      },
+      "type": "If"
+    }
+  },
+  "outputs": {}
+}
