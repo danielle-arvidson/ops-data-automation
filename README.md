@@ -1,6 +1,19 @@
 # Ops data automation
 
-Automation I built as Stock and Data Integrity Manager at a UK medical device manufacturer. There are two groups: Python tools for stock work between the ERP and the 3PL warehouse, and Power Automate flows for report filing and data request handling.
+## Summary
+
+I'm a Stock and Data Integrity Manager at a regulated UK medical device manufacturer (ISO 13485, FDA 21 CFR 820). I'm responsible for inventory accuracy across three sites and an outsourced warehouse, and for supply chain master data in Epicor Kinetic. I'm also one of three leads on the company's move from Epicor to SAP.
+
+This repo is the automation I built for that work:
+
+- Three Python desktop tools that cut measured time per request from between 25 minutes and 1 hour 45 minutes down to 2 minutes or less, about 1,985 hours a year at minimum volumes.
+- Power Automate flows that file 3PL reports automatically and give the master data team a single tracked request queue.
+- A Power BI stock take reconciliation report, and an Excel approval form that flags write-offs already covered by finance provision.
+- [Case studies](case-studies/) of analysis and control design: a cycle count coverage review, requirements extraction for the SAP migration, and rules for using AI assistants on controlled data.
+
+Tools: Python (pandas, openpyxl, tkinter, pytest), Power Automate cloud and Desktop, Power BI, Excel, SharePoint, Microsoft Forms, Epicor Kinetic.
+
+## About this repo
 
 The business runs on Epicor Kinetic, and finished goods are stored at a third-party logistics (3PL) warehouse that runs its own warehouse system. Most of the daily work sat in the gap between the two: exporting from the ERP, cross-checking against the 3PL's stock report, and retyping the result into the 3PL's spreadsheets.
 
@@ -66,6 +79,10 @@ These work in Outlook, SharePoint and the shared drive, and the data request que
 
 - [3PL report filing](power-automate/3pl-report-filing/): a Power Automate Desktop flow that files a dozen daily and weekly 3PL report types from a shared inbox into dated folders.
 - [Data request intake](power-automate/data-request-intake/): Microsoft Form, SharePoint List and four cloud flows (intake, quality-system follow-ups, assignment and completion emails, lead-time and on-time tracking) that replaced email and Teams requests to the master data team with a single tracked queue.
+
+## Case studies
+
+[Write-ups](case-studies/) of work that can't be published as code: a cycle count coverage review, requirements extraction for the SAP migration, a packing spec review checklist, an audit gap analysis, rules for AI use on controlled data, and role training documentation.
 
 ## Running it
 
