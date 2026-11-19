@@ -1,6 +1,6 @@
 # Data request intake (Microsoft Forms, SharePoint, Power Automate)
 
-Requests for master data work (new parts, part changes, lot fixes, reports) used to arrive by email, Teams message, phone call and in passing. Nothing was logged, so there was no queue, no view of workload and no way to show turnaround. This replaces all of those with one form and one list.
+Requests for master data work (new parts, part changes, lot fixes, reports) came in by email, Teams and phone. Some request types had their own logs, but there was no single queue, so there was no full view of workload and no way to show turnaround. This replaces those channels with one form and one list.
 
 ## How it fits together
 
@@ -40,11 +40,6 @@ Requesters have view-only access to the list, so they can check status without a
 | 8 | Needed by | Date | No | |
 | 9 | Evidence | File upload | No | Screenshots, report exports, emails saved as PDF (up to 10 files, 10 MB each) |
 
-Two design choices did most of the work:
-
-- **Business impact instead of priority.** Everyone marks their own request high priority. Asking what is actually blocked gives a triage order people can't inflate.
-- **"Anything you've already checked".** This cuts down on back-and-forth before work can start.
-
 ## Intake flow, step by step
 
 1. **Trigger:** a new form response.
@@ -60,7 +55,7 @@ Details that stop it breaking:
 
 ## QMS follow-up flow
 
-Spec changes approved in the quality management system often need matching ERP changes. The QMS sends a notification email for each one, and those were being missed in a busy inbox.
+Spec changes in the quality management system often need matching ERP changes, and the QMS sends a notification email for each one. This flow turns those emails into requests in the same queue as everything else.
 
 1. **Trigger:** an email from the QMS notification address whose subject contains a document reference (`DOC-`).
 2. **Pull out the reference** (for example `DOC-00316`) from the subject.

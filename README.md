@@ -12,9 +12,11 @@ This repo is a sanitised copy. Company names, file paths, account codes and real
 
 | Tool | Problem | What it does |
 |------|---------|--------------|
-| [Movement request](apps/movement_request_app.py) | Customer orders picked from the 3PL had to be copied into the 3PL's request template by hand, with case counts worked out on a calculator. | Reads the ERP order export, fills the template, calculates cases from the 3PL's own pack config, and flags any line the 3PL can't cover. |
-| [Warehouse orders](apps/warehouse_order_app.py) | Warehouse orders went to the 3PL without a stock check, and short lines came back days later. | Checks every line against the 3PL's daily stock report before sending, adds case counts, fills in the next working day as the required date, and turns short lines red. |
-| [Pack-out](apps/packout_app.py) | Packing lists came back from the 3PL with no sales order reference, so each line had to be matched to an order by hand before it could be shipped in the ERP. | Matches part and batch against ERP shipping exports and fills SO, Line and Release, oldest order first. |
+| [Movement request](apps/movement_request_app.py) | Every movement request and transfer order to the 3PL meant looking up stock line by line in the 3PL's web system, then typing part, batch, quantity and case count into their request template. | Reads the ERP order export, checks stock against the 3PL's daily stock CSV, fills the template, calculates cases from the 3PL's own pack config, and flags any line the 3PL can't cover. Getting the 3PL to email that daily CSV, in place of web lookups, is what made the tool possible. |
+| [Warehouse orders](apps/warehouse_order_app.py) | Orders from the three UK sites were checked by hand against the 3PL stock report, with case counts worked out line by line. | Checks every line against the 3PL's daily stock report, adds case counts, fills in the required date (next working day, or the day after if it's past 2pm), and turns short lines red. |
+| [Pack-out](apps/packout_app.py) | Packing lists came back from the 3PL with no order reference, so each line had to be matched by hand against several movement requests before it could be shipped in the ERP. | Matches part and batch against the movement request exports for that pack-out and fills SO, Line and Release, oldest request first. |
+
+The tools are used by the supply chain team.
 
 Shared logic is in `stocktools/`, kept separate from the GUI so it can be tested.
 
