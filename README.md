@@ -18,6 +18,16 @@ This repo is a sanitised copy. Company names, file paths, account codes and real
 
 The tools are used by the supply chain team.
 
+**Time per request, before and after** (deployed versions, measured April 2026):
+
+| Tool | Manual | With tool | Volume |
+|---|---|---|---|
+| Movement requests and transfer orders | 43.5 min | 1 min | 28+ a week |
+| Warehouse orders | 25 min | 30 sec | 10+ a week |
+| Pack-out | 1 hr 45 min | 2 min | 11+ a week |
+
+Across 46.4 working weeks at the minimum volumes, that's about 1,985 hours a year.
+
 ### Stock provision re-run
 
 [`stocktools/provision.py`](stocktools/provision.py) is the quarter-end stock provision calculation I run for Finance. Every stock line is re-classified against the criteria as at quarter-end, rather than rolling the previous balance forward:
