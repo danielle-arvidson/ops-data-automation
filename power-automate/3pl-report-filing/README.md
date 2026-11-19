@@ -2,6 +2,8 @@
 
 The 3PL emails around a dozen report types to a shared inbox: daily stock, receipts, orders, shipments, returns and weekly adjustments. Each one was being saved by hand into the right folder for its year and month. This flow does it in one run.
 
+It only touches Outlook and a shared network drive. It doesn't read from or write to the ERP.
+
 ## What it does
 
 1. Pulls every email from the 3PL's sender address and saves the attachments to a staging folder.
