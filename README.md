@@ -13,6 +13,8 @@ This repo is the automation I built for that work:
 
 Tools: Python (pandas, openpyxl, tkinter, pytest), Power Automate cloud and Desktop, Power BI, Excel, SharePoint, Microsoft Forms, Epicor Kinetic.
 
+I build with AI assistants. The process design, requirements, testing against real data and corrections are mine; the AI drafts code and documents to that spec.
+
 ## About this repo
 
 The business runs on Epicor Kinetic, and finished goods are stored at a third-party logistics (3PL) warehouse that runs its own warehouse system. Most of the daily work sat in the gap between the two: exporting from the ERP, cross-checking against the 3PL's stock report, and retyping the result into the 3PL's spreadsheets.
