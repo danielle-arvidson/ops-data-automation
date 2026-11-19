@@ -1,0 +1,54 @@
+# Power Automate Desktop flow: file 3PL report attachments into dated folders.
+# Mailbox, sender, paths and report names are placeholders.
+Outlook.Launch Instance=> OutlookInstance
+Outlook.RetrieveEmailMessages.RetrieveEmailsAndSaveAttachments Instance: OutlookInstance Account: $'''Shared Inbox''' MailFolder: $'''Inbox''' EmailsToRetrieve: Outlook.RetrieveMessagesMode.All MarkAsRead: False ReadBodyAsHtml: False FromContains: $'''reports@3pl.example.com''' SaveAttachmentsInto: $'''C:\\Reports\\3PL\\_Staging''' Messages=> RetrievedEmails
+SET RootFolder TO $'''C:\\Reports\\3PL'''
+LOOP FOREACH CurrentEmail IN RetrievedEmails
+    Text.ConvertDateTimeToText.FromCustomDateTime DateTime: CurrentEmail.Date CustomFormat: $'''yyyy''' Result=> YearText
+    Text.ConvertDateTimeToText.FromCustomDateTime DateTime: CurrentEmail.Date CustomFormat: $'''MM. MMMM''' Result=> MonthText
+    Text.ConvertDateTimeToText.FromCustomDateTime DateTime: CurrentEmail.Date CustomFormat: $'''ddMMMyy''' Result=> DayText
+    Text.ChangeCase Text: DayText NewCase: Text.CaseOption.UpperCase Result=> DayStamp
+    LOOP FOREACH CurrentAttachment IN CurrentEmail.Attachments
+        SET SubFolder TO $'''%''%'''
+        SET FileToMove TO CurrentAttachment
+        # Route on the attachment name. Email subjects repeat across reports, file names don't.
+        SWITCH CurrentAttachment.Name
+            CASE Contains($'''Shipment Summary''', False)
+                SET SubFolder TO $'''Sales\\Batch Allocations'''
+                File.RenameFiles.Rename Files: CurrentAttachment NewName: $'''Shipment Summary %DayStamp%''' KeepExtension: True IfFileExists: File.IfExists.DoNothing RenamedFiles=> RenamedFiles
+                SET FileToMove TO RenamedFiles
+            CASE Contains($'''Weekly Storage Summary''', False)
+                SET SubFolder TO $'''Weekly Storage Summary Reports'''
+            CASE Contains($'''Summary by SKU''', False)
+                SET SubFolder TO $'''Receipt Reports'''
+            CASE Contains($'''Summary by Product Group''', False)
+                SET SubFolder TO $'''Receipt Reports'''
+            CASE Contains($'''Inventory Summary - Stored Goods''', False)
+                SET SubFolder TO $'''Stock Report'''
+                # Second copy into the folder the Python tools search for the newest inventory file.
+                IF (Folder.IfFolderExists.DoesNotExist Path: $'''%RootFolder%\\Daily Storage Summary Reports\\%YearText%\\%MonthText%''') THEN
+                    Folder.Create FolderPath: RootFolder FolderName: $'''Daily Storage Summary Reports\\%YearText%\\%MonthText%''' Folder=> NewFolder2
+                END
+                File.Copy Files: CurrentAttachment Destination: $'''%RootFolder%\\Daily Storage Summary Reports\\%YearText%\\%MonthText%''' IfFileExists: File.IfExists.DoNothing CopiedFiles=> CopiedFiles
+            CASE Contains($'''Returns Summary''', False)
+                SET SubFolder TO $'''Sales\\Returns Report'''
+            CASE Contains($'''Daily Ecomm Order Summary''', False)
+                SET SubFolder TO $'''Ecomm Order Reports'''
+            CASE Contains($'''Daily Warehouse Order Summary''', False)
+                SET SubFolder TO $'''Order Summary Reports'''
+            CASE Contains($'''Daily Order Summary''', False)
+                SET SubFolder TO $'''Order Summary Reports'''
+            CASE Contains($'''In Progress Order Summary''', False)
+                SET SubFolder TO $'''Sales\\Orders In Progress'''
+            CASE Contains($'''Weekly Stock Adjustments''', False)
+                SET SubFolder TO $'''Adjustment Report'''
+        END
+        IF IsNotEmpty(SubFolder) THEN
+            IF (Folder.IfFolderExists.DoesNotExist Path: $'''%RootFolder%\\%SubFolder%\\%YearText%\\%MonthText%''') THEN
+                Folder.Create FolderPath: RootFolder FolderName: $'''%SubFolder%\\%YearText%\\%MonthText%''' Folder=> NewFolder
+            END
+            File.Move Files: FileToMove Destination: $'''%RootFolder%\\%SubFolder%\\%YearText%\\%MonthText%''' IfFileExists: File.IfExists.DoNothing MovedFiles=> MovedFiles
+        END
+    END
+END
+Outlook.ProcessEmailMessages.MoveEmails Instance: OutlookInstance Account: $'''Shared Inbox''' EmailsToProcess: RetrievedEmails MailFolder: $'''Inbox\\Filed'''

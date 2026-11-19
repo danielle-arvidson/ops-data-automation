@@ -1,0 +1,10 @@
+{
+  "paths": {
+    "inventory_folder": "sample_data",
+    "movement_request_template": "sample_data/movement_request_template.xlsx",
+    "movement_request_output": "output"
+  },
+  "owner_ids": ["OWNER_A", "OWNER_B", "OWNER_C"],
+  "default_owner_id": "OWNER_A",
+  "case_sku_pattern": ".(CS)."
+}
