@@ -24,6 +24,8 @@ HOLD_KEYWORD = S.get("hold_keyword", "").lower()
 HOLD_PARTS = set(S.get("hold_parts", []))
 RECENT_DAYS = S.get("recent_days", 3)
 PENDING_BIN = S.get("pending_receipt_bin", "RCV-01").upper()
+KPI_FOLDER = S.get("kpi_folder", "")
+ACCURACY_TOLERANCE_PCT = S.get("accuracy_tolerance_pct", 0.0)
 
 R_NONINV = 'Non-inventory'
 R_HOLD = S.get('hold_reason', 'Product on hold, awaiting release')
@@ -378,8 +380,80 @@ def match_lot(lot, known):
     return lot, ('exact' if known else 'part not in ERP here')
 
 
+# ---------------------------------------------------------------- KPI logging
+def append_csv(folder, name, header, rows, log=print):
+    """Append rows to a CSV log, writing the header if the file is new. If the log is open in
+    Excel (locked), the rows go to a dated side file instead so nothing is lost."""
+    if not rows: return
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name)
+    try:
+        new = not os.path.exists(path)
+        with open(path, 'a', newline='', encoding='utf-8') as f:
+            w = csv.writer(f)
+            if new: w.writerow(header)
+            w.writerows(rows)
+    except PermissionError:
+        alt = os.path.join(folder, name.replace('.csv', f'_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv'))
+        with open(alt, 'w', newline='', encoding='utf-8') as f:
+            w = csv.writer(f); w.writerow(header); w.writerows(rows)
+        log(f'KPI log {name} is open or locked. Rows saved to {os.path.basename(alt)}: add them to the main log later.')
+
+
+def run_by():
+    try:
+        import getpass; return getpass.getuser()
+    except Exception: return os.environ.get('USERNAME', '')
+
+
+def log_kpis(tool, report_date, scope, files, lines, rows_other_hi, rows_epi_hi, area_of, kpi_folder, log=print):
+    """lines: [(key, erp_qty, other_qty)]. rows_*: detail rows [area, part, desc, lot, erp, other, _, unit, _, reason, note]."""
+    run_id = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3]
+    rd = report_date.strftime('%d/%m/%Y') if report_date else ''
+    tol = ACCURACY_TOLERANCE_PCT / 100.0
+
+    def ok(a, b): return abs(b - a) <= tol * max(abs(a), abs(b)) + 1e-9
+    n = len(lines); matched = sum(1 for _, a, b in lines if ok(a, b))
+    tot_e = sum(a for _, a, _ in lines); tot_o = sum(b for _, _, b in lines)
+    val = lambda r, q: q * r[7] if r[7] else 0.0
+    o_qty = sum(r[5] - r[4] for r in rows_other_hi); e_qty = sum(r[4] - r[5] for r in rows_epi_hi)
+    o_val = sum(val(r, r[5] - r[4]) for r in rows_other_hi); e_val = sum(val(r, r[4] - r[5]) for r in rows_epi_hi)
+    gross = o_qty + e_qty
+    tbd = sum(r[5] - r[4] for r in rows_other_hi if r[9] == R_TBD) + sum(r[4] - r[5] for r in rows_epi_hi if r[9] == R_TBD)
+    base = max(tot_e, tot_o) or 1
+    r2 = lambda x: round(x, 4)
+    append_csv(kpi_folder, 'recon_runs_log.csv',
+               ['Run ID', 'Run date', 'Run by', 'Tool', 'Report date', 'Scope', 'Files',
+                'Lines compared', 'Lines accurate', 'Line accuracy %', 'Tolerance %',
+                'ERP qty', 'Other qty', 'Other higher qty', 'ERP higher qty', 'Gross variance qty',
+                'Net variance qty', 'Qty accuracy %', 'Other higher value', 'ERP higher value',
+                'Gross variance value', 'Net variance value', 'Explained %'],
+               [[run_id, f'{datetime.datetime.now():%d/%m/%Y %H:%M}', run_by(), tool, rd, scope, files,
+                 n, matched, r2(100 * matched / n) if n else '', ACCURACY_TOLERANCE_PCT,
+                 r2(tot_e), r2(tot_o), r2(o_qty), r2(e_qty), r2(gross), r2(o_qty - e_qty),
+                 r2(100 * (1 - gross / base)), round(o_val, 2), round(e_val, 2), round(o_val + e_val, 2),
+                 round(o_val - e_val, 2), r2(100 * (1 - tbd / gross)) if gross else 100]], log)
+    rs = collections.defaultdict(lambda: [0, 0.0, 0.0])
+    for direction, rows, sign in (('Other higher', rows_other_hi, 1), ('ERP higher', rows_epi_hi, -1)):
+        for r in rows:
+            q = (r[5] - r[4]) * sign
+            x = rs[(direction, r[9])]; x[0] += 1; x[1] += q; x[2] += val(r, q)
+    append_csv(kpi_folder, 'recon_reasons_log.csv',
+               ['Run ID', 'Tool', 'Report date', 'Direction', 'Reason', 'Lines', 'Qty', 'Value'],
+               [[run_id, tool, rd, d, rsn, v[0], r2(v[1]), round(v[2], 2)] for (d, rsn), v in sorted(rs.items())], log)
+    ar = collections.defaultdict(lambda: [0, 0, 0.0, 0.0])
+    for k, a, b in lines:
+        x = ar[area_of(k)]; x[0] += 1; x[1] += ok(a, b); x[2] += abs(b - a); x[3] += max(a, b)
+    append_csv(kpi_folder, 'recon_area_log.csv',
+               ['Run ID', 'Tool', 'Report date', 'Area', 'Lines compared', 'Lines accurate', 'Line accuracy %',
+                'Gross variance qty', 'Qty accuracy %'],
+               [[run_id, tool, rd, a, v[0], v[1], r2(100 * v[1] / v[0]) if v[0] else '', r2(v[2]),
+                 r2(100 * (1 - v[2] / v[3])) if v[3] else 100] for a, v in sorted(ar.items())], log)
+    log(f'KPIs logged to {kpi_folder} (line accuracy {100 * matched / n:.1f}%, explained {100 * (1 - tbd / gross) if gross else 100:.1f}%)' if n else 'KPIs logged')
+
+
 # ---------------------------------------------------------------- mode 1: 3PL
-def run_3pl(erp_path, tpl_path, out_path, txn_path=None, order_paths=(), report_date=None, log=print):
+def run_3pl(erp_path, tpl_path, out_path, txn_path=None, order_paths=(), report_date=None, log=print, kpi_folder=None):
     log('Reading ERP report...')
     eq, elots, edesc, other_site, unit, excluded = load_erp(erp_path)
     log('Reading 3PL report...')
@@ -414,6 +488,8 @@ def run_3pl(erp_path, tpl_path, out_path, txn_path=None, order_paths=(), report_
     write_workbook(out_path, '3PL vs ERP stock comparison', 'ERP', '3PL', lines_out, rows_ep, rows_tpl,
                    EPI_REASONS, TPL_REASONS, ['Owner', 'Part', 'Lot'], notes, log)
     log(f'3PL total {tot_d:,.1f}  ERP total {tot_e:,.1f}  Net {tot_d - tot_e:,.1f}')
+    log_kpis('3PL vs ERP', report_date, '3PL', f'{os.path.basename(erp_path)}; {os.path.basename(tpl_path)}',
+             lines, rows_tpl, rows_ep, lambda k: k[0], kpi_folder or KPI_FOLDER or os.path.dirname(os.path.abspath(out_path)), log)
     return out_path
 
 
@@ -468,7 +544,7 @@ def load_stocktake_txns(path):
 
 
 def run_stocktake(erp_path, count_path, out_path, scope, mapping, by_bin=False, txn_path=None,
-                  count_sheet=None, log=print):
+                  count_sheet=None, log=print, kpi_folder=None, report_date=None):
     """scope: set of (site, warehouse) counted. mapping: count column names for part, lot, qty, warehouse, bin."""
     log('Reading ERP report...')
     hdr, erows = read_table(erp_path)
@@ -583,6 +659,10 @@ def run_stocktake(erp_path, count_path, out_path, scope, mapping, by_bin=False, 
     write_workbook(out_path, 'Stock take: physical count vs ERP', 'ERP', 'Count', lines_out, rows_e, rows_c,
                    EPI_HI, COUNT_HI, ['Warehouse', 'Bin', 'Part', 'Lot'], notes, log)
     log(f'Count total {tot_c:,.1f}  ERP total {tot_e:,.1f}  Net {tot_c - tot_e:,.1f}')
+    log_kpis('Stock take', report_date or datetime.date.today(), '; '.join(f'{s} / {w}' for s, w in sorted(scope)),
+             f'{os.path.basename(erp_path)}; {os.path.basename(count_path)}', lines, rows_c, rows_e,
+             lambda k: k[0] if k[0] != '*' else ('; '.join(sorted(scope_wh))),
+             kpi_folder or KPI_FOLDER or os.path.dirname(os.path.abspath(out_path)), log)
     return out_path
 
 

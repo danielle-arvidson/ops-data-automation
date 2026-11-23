@@ -164,7 +164,25 @@ The `reconciliation` section of `config.json`:
 | `non_inventory_parts` | Pallets, edge protectors, cartons and other packaging |
 | `hold_keyword`, `hold_parts`, `hold_reason` | Parts grouped under one hold reason, such as a new product awaiting release |
 | `recent_days` | How many days before the report date count as recently received at the 3PL |
+| `kpi_folder`, `accuracy_tolerance_pct` | Where the KPI logs go, and the accuracy tolerance |
 | `pending_receipt_bin` | The ERP's non-physical receiving bin |
+
+## KPI logs
+
+Every run adds rows to three CSV logs in the KPI log folder (set at the top of the window, or `kpi_folder` in `config.json`; blank means the results folder). Point Power BI at the folder to report trends.
+
+| Log | One row per | Main fields |
+| --- | --- | --- |
+| `recon_runs_log.csv` | Run | Line accuracy %, quantity accuracy %, gross and net variance (qty and value), explained % |
+| `recon_reasons_log.csv` | Reason per run | Direction, reason, lines, qty, value |
+| `recon_area_log.csv` | Owner or warehouse per run | Lines compared, line accuracy %, gross variance, quantity accuracy % |
+
+- **Line accuracy %:** accurate lines ÷ lines compared. A line is accurate when the difference is within `accuracy_tolerance_pct` of the larger quantity (0 = exact).
+- **Quantity accuracy %:** 1 − gross variance ÷ the larger of the two totals.
+- **Gross variance:** other list higher + ERP higher, both counted as positive. **Net variance:** other list higher − ERP higher.
+- **Explained %:** difference qty with a reason other than To Be Determined ÷ gross variance.
+
+If a log is open in Excel when a run finishes, the rows go to a dated side file in the same folder instead.
 
 ## Before you share the results
 

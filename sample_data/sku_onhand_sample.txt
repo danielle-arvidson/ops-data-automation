@@ -1,0 +1,11 @@
+3PL on hand (paste into the first box)
+Lot	Owner	Qty
+L402	OWNER_B	51
+L404	OWNER_A	48
+
+ERP on hand (paste into the second box)
+Lot	Warehouse	Qty
+L402	SL01	214
+L401	SL01	137
+L403	SL01	1
+L404	SL01	48

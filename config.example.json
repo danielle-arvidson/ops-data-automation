@@ -56,6 +56,12 @@
     ],
     "hold_reason": "New product, goods in awaiting release",
     "recent_days": 3,
-    "pending_receipt_bin": "RCV-01"
+    "pending_receipt_bin": "RCV-01",
+    "kpi_folder": "",
+    "accuracy_tolerance_pct": 0.0
+  },
+  "sku_reconciliation": {
+    "match_days": 5,
+    "kpi_folder": ""
   }
 }

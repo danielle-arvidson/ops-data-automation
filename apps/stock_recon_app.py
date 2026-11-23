@@ -19,6 +19,11 @@ def gui():
     from tkinter import ttk, filedialog, messagebox, scrolledtext
     root = tk.Tk(); root.title('Stock Reconciliation'); root.geometry('820x640')
     nb = ttk.Notebook(root); nb.pack(fill='both', expand=False, padx=6, pady=6)
+    kf = ttk.Frame(root); kf.pack(fill='x', padx=6)
+    kpi_var = tk.StringVar(value=reconciliation.KPI_FOLDER)
+    ttk.Label(kf, text='KPI log folder (blank = results folder)').pack(side='left', padx=4)
+    ttk.Entry(kf, textvariable=kpi_var, width=60).pack(side='left', padx=4)
+    ttk.Button(kf, text='Browse', command=lambda: kpi_var.set(filedialog.askdirectory() or kpi_var.get())).pack(side='left')
     out = scrolledtext.ScrolledText(root, height=12); out.pack(fill='both', expand=True, padx=6, pady=6)
 
     def log(msg):
@@ -61,7 +66,7 @@ def gui():
             messagebox.showwarning('Missing', 'Choose the ERP report, 3PL report and where to save.'); return
         try:
             reconciliation.run_3pl(v1['erp'].get(), v1['tpl'].get(), v1['out'].get(), v1['txn'].get() or None, list(orders),
-                reconciliation.to_date(v1['date'].get()), log); finish(v1['out'].get())
+                reconciliation.to_date(v1['date'].get()), log, kpi_var.get() or None); finish(v1['out'].get())
         except Exception as ex:
             log('ERROR: ' + str(ex)); log(traceback.format_exc())
     ttk.Button(t1, text='Run', command=go1).grid(row=6, column=1, pady=6)
@@ -122,7 +127,7 @@ def gui():
         mp = {k: v2[k].get() or None for k in ('part', 'lot', 'qty', 'warehouse', 'bin')}
         try:
             reconciliation.run_stocktake(v2['erp'].get(), v2['cnt'].get(), v2['out'].get(), scope, mp, bybin.get(),
-                          v2['txn'].get() or None, v2['sheet'].get() or None, log); finish(v2['out'].get())
+                          v2['txn'].get() or None, v2['sheet'].get() or None, log, kpi_var.get() or None); finish(v2['out'].get())
         except Exception as ex:
             log('ERROR: ' + str(ex)); log(traceback.format_exc())
     ttk.Button(t2, text='Run', command=go2).grid(row=8, column=1, pady=6)

@@ -1,0 +1,16 @@
+Tran	Date	Part	Description	Rev	Whse	Warehouse	Bin	Type	Type	Invty	Quantity	UOM	Mtl Unit Cost	Entry Person	Reference	Job	Lot Number	Pack	Pack Line	PO	Line	Order	Line	Supplier Num	PO Receipt Qty	Packing Slip	Invoice	Line	Reason Code	DMR Number	RMA	ID	User	Employee	Sys Date	Sys Time
+1	09/09/2026	009401			TP01	3PL Main	TP01	R	PUR-STK	true	1260						L401																user1		09/09/2026	30000
+2	10/09/2026	009401			TP01	3PL Main	TP01	S	STK-PLT	true	1260						L401																user1		10/09/2026	36000
+3	10/09/2026	009401			SL01	External Warehouse	SL01	R	PLT-STK	true	1260						L401																user1		10/09/2026	36100
+4	24/09/2026	009401			SL01	External Warehouse	SL01	S	STK-CUS	true	300						L401					100234											user1		24/09/2026	40000
+5	25/09/2026	009401			SL01	External Warehouse	SL01	S	STK-CUS	true	823						L401					100300											user1		25/09/2026	40000
+6	12/09/2026	009401			TP01	3PL Main	TP01	R	MFG-STK	true	3384						L402																user1		12/09/2026	30000
+7	12/09/2026	009401			TP01	3PL Main	TP01	S	STK-PLT	true	3384						L402																user1		12/09/2026	43000
+8	12/09/2026	009401			SL01	External Warehouse	SL01	R	PLT-STK	true	3384						L402																user1		12/09/2026	43100
+9	20/09/2026	009401			SL01	External Warehouse	SL01	S	STK-CUS	true	3170						L402					100400											user1		20/09/2026	40000
+10	12/10/2026	009401			SL01	External Warehouse	SL01	R	INS-STK	true	1						L403														RMA-17		user1		12/10/2026	40000
+11	22/10/2026	009401			SL01	External Warehouse	SL01	S	STK-CUS	true	1						L403					100600											user1		22/10/2026	40000
+12	22/10/2026	009401			SL01	External Warehouse	SL01	A	ADJ-QTY	true	1						L403												COUNT				user1		22/10/2026	40100
+13	22/10/2026	009401			SL01	External Warehouse	SL01	S	STK-CUS	true	-1						L403					100600											user1		22/10/2026	40200
+14	22/10/2026	009401			SL01	External Warehouse	SL01	S	STK-CUS	true	1						L403					100600											user1		22/10/2026	40300
+15	21/09/2026	009401			SL01	External Warehouse	SL01	I	STK-UKN	true	-48						L404												FOUND				user1		21/09/2026	40000

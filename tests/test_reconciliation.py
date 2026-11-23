@@ -74,3 +74,20 @@ def test_stocktake_reasons(tmp_path):
     assert hi[("FOUND-1", "X1")] == rec.S_FOUND
     assert lo[("009305", "L305")] == rec.S_RCV
     assert lo[("009306", "L306")] == rec.S_NOTFOUND
+
+
+def test_kpi_logs(tmp_path):
+    out = str(tmp_path / "r.xlsx")
+    rec.run_3pl(os.path.join(S, "erp_stock_report_sample.xlsx"), os.path.join(S, "3pl_full_inventory_sample.xlsx"),
+                out, os.path.join(S, "erp_transactions_sample.txt"),
+                [os.path.join(S, "3pl_order_summary_sample.csv")], datetime.date(2026, 5, 15), log=lambda m: None,
+                kpi_folder=str(tmp_path))
+    import csv
+    with open(tmp_path / "recon_runs_log.csv", newline="") as f:
+        run_row = list(csv.DictReader(f))[0]
+    wb = load_workbook(out)
+    hi = sum(r[5] - r[4] for r in wb["3PL higher"].iter_rows(min_row=2, values_only=True))
+    lo = sum(r[4] - r[5] for r in wb["ERP higher"].iter_rows(min_row=2, values_only=True))
+    assert float(run_row["Net variance qty"]) == pytest.approx(hi - lo)
+    assert float(run_row["Gross variance qty"]) == pytest.approx(hi + lo)
+    assert (tmp_path / "recon_reasons_log.csv").exists() and (tmp_path / "recon_area_log.csv").exists()
