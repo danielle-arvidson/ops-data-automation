@@ -88,7 +88,7 @@ How the columns change the comparison:
 
 **Check the net first.** The net difference on the Summary must equal the other list's total minus the ERP total, which is printed under it. If they don't match, don't use the results.
 
-**Value** is quantity times the ERP unit cost from the stock report. Lines with no ERP cost are left blank.
+**Value** is quantity times the ERP unit cost from the stock report. A part with no cost on the report (because it has no ERP stock) is valued at the first Mtl Unit Cost for that part in the transactions file, if one was supplied. Lines with neither are left blank. Supply a transactions file that covers the parts on the 3PL report, or the 3PL-higher value will be understated.
 
 **The Lot match column** on the Comparison tab says how each lot was paired:
 

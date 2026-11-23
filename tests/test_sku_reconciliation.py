@@ -87,3 +87,13 @@ def test_same_movement_different_qty_pairs():
              date=__import__("datetime").datetime(2026, 3, 24))
     notes = sku.match_events([d], [e])
     assert "qty differs" in d["pair"] and notes[0]["dt"] == 1 and notes[0]["erp"] == 3001
+
+
+def test_wrong_part_number_stops_with_clear_error(tmp_path):
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active
+    ws.append(["Code", "Update Qty", "Batch ID", "Owner ID", "Date", "SKU"])
+    ws.append(["Receipt", 10, "L1", "OWNER_A", __import__("datetime").datetime(2026, 1, 1), "REALPART"])
+    p = str(tmp_path / "trace.xlsx"); wb.save(p)
+    with pytest.raises(ValueError, match="It is for REALPART"):
+        sku.load_3pl_traces([p], "TYPOPART")

@@ -91,3 +91,16 @@ def test_kpi_logs(tmp_path):
     assert float(run_row["Net variance qty"]) == pytest.approx(hi - lo)
     assert float(run_row["Gross variance qty"]) == pytest.approx(hi + lo)
     assert (tmp_path / "recon_reasons_log.csv").exists() and (tmp_path / "recon_area_log.csv").exists()
+
+
+def test_transactions_supply_cost_for_parts_missing_from_stock_report(tmp_path):
+    from stocktools import reconciliation as rc
+    hdr = ["Tran", "Date", "Part", "Description", "Rev", "Whse", "Warehouse", "Bin", "Type", "Type", "Invty",
+           "Quantity", "UOM", "Mtl Unit Cost", "Lot Number", "Sys Date"]
+    rows = [["1", "01/05/2026", "PX1", "d", "", "ZZ99", "Other site", "B1", "I", "STK-MTL", "", "5", "EA", "0", "L1", "01/05/2026"],
+            ["2", "02/05/2026", "PX1", "d", "", "ZZ99", "Other site", "B1", "R", "PUR-STK", "", "5", "EA", "2.5", "L1", "02/05/2026"]]
+    p = tmp_path / "txn.txt"
+    p.write_text("\n".join("\t".join(r) for r in [hdr] + rows), encoding="utf-8")
+    shipped, receipts, mtl = rc.load_transactions(str(p))
+    assert mtl == {"PX1": 2.5}   # cost taken from any site, first positive value
+    assert rc.load_transactions(None)[2] == {}

@@ -198,8 +198,9 @@ def load_3pl(path, epi_lots):
 def load_transactions(path):
     """ERP transaction BAQ export (tab-delimited, PartTran layout)."""
     shipped, receipts = collections.defaultdict(float), collections.defaultdict(list)
+    mtl = {}   # first positive Mtl Unit Cost per part: fallback value for parts with no cost on the stock report
     if not path:
-        return shipped, receipts
+        return shipped, receipts, mtl
     with open(path, encoding='utf-8-sig') as f:
         rows = list(csv.reader(f, delimiter='\t'))
     hdr = [h.strip() for h in rows[0]]
@@ -210,6 +211,8 @@ def load_transactions(path):
     for r in rows[1:]:
         if len(r) < len(hdr):
             continue
+        if 'Mtl Unit Cost' in idx and (num(r[idx['Mtl Unit Cost']]) or 0) > 0:   # any site: cost is per part
+            mtl.setdefault(r[idx['Part']].strip(), num(r[idx['Mtl Unit Cost']]))
         wc, bc = r[idx['Whse']].strip(), r[idx['Bin']].strip().upper()
         g = BIN_CODE_OWNER.get((wc, bc)) if any(w == wc for w, _ in BIN_CODE_OWNER) else WHSE_CODE_OWNER.get(wc)
         if not g:
@@ -220,7 +223,7 @@ def load_transactions(path):
             shipped[(g, part, nz(lot))] += q
         elif tt in ('MFG-STK', 'PUR-STK', 'PLT-STK', 'INS-STK') and q > 0:
             receipts[(g, part, nz(lot))].append((r[idx['Sys Date']], tt, q))
-    return shipped, receipts
+    return shipped, receipts, mtl
 
 
 def load_3pl_orders(paths):
@@ -385,7 +388,11 @@ def append_csv(folder, name, header, rows, log=print):
     """Append rows to a CSV log, writing the header if the file is new. If the log is open in
     Excel (locked), the rows go to a dated side file instead so nothing is lost."""
     if not rows: return
-    os.makedirs(folder, exist_ok=True)
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError:
+        log(f'KPI log folder {folder} could not be reached. Nothing logged for {name}: check the drive and run again.')
+        return
     path = os.path.join(folder, name)
     try:
         new = not os.path.exists(path)
@@ -408,7 +415,7 @@ def run_by():
 
 def log_kpis(tool, report_date, scope, files, lines, rows_other_hi, rows_epi_hi, area_of, kpi_folder, log=print):
     """lines: [(key, erp_qty, other_qty)]. rows_*: detail rows [area, part, desc, lot, erp, other, _, unit, _, reason, note]."""
-    run_id = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3]
+    run_id = 'R' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')[:-3]   # letters keep Excel from showing it as 2.02611E+16
     rd = report_date.strftime('%d/%m/%Y') if report_date else ''
     tol = ACCURACY_TOLERANCE_PCT / 100.0
 
@@ -458,7 +465,11 @@ def run_3pl(erp_path, tpl_path, out_path, txn_path=None, order_paths=(), report_
     eq, elots, edesc, other_site, unit, excluded = load_erp(erp_path)
     log('Reading 3PL report...')
     dq, alloc, method, rdate, ddesc = load_3pl(tpl_path, elots)
-    shipped, receipts = load_transactions(txn_path)
+    shipped, receipts, mtl = load_transactions(txn_path)
+    costed_from_txn = {p: c for p, c in mtl.items() if p not in unit}
+    unit = {**costed_from_txn, **unit}
+    if costed_from_txn:
+        log(f'  {len(costed_from_txn)} part(s) not costed on the stock report: valued at Mtl Unit Cost from the transactions')
     desp, orders = load_3pl_orders(order_paths)
     desc = dict(edesc); desc.update({k: v for k, v in ddesc.items() if v})
     keys = sorted(set(eq) | set(dq))
@@ -483,6 +494,8 @@ def run_3pl(erp_path, tpl_path, out_path, txn_path=None, order_paths=(), report_
              f'ERP stock outside 3PL warehouses (not compared): {excluded:,.1f}',
              f'ERP report: {os.path.basename(erp_path)}', f'3PL report: {os.path.basename(tpl_path)}',
              f'Transactions: {os.path.basename(txn_path) if txn_path else "not supplied"}',
+             'Value: ERP cost per unit from the stock report. Parts with no cost on the report use the first Mtl Unit Cost '
+             'in the transactions file, if one was supplied; otherwise they have no value.',
              f'3PL order summaries: {len(order_paths)} file(s)']
     lines_out = [(k, e, d, desc.get(k[1], ''), '; '.join(sorted(method.get(k, [])))) for k, e, d in lines]
     write_workbook(out_path, '3PL vs ERP stock comparison', 'ERP', '3PL', lines_out, rows_ep, rows_tpl,

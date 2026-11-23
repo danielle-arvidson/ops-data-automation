@@ -133,7 +133,7 @@ def pick(hdr, *names, last=False):
 
 # ---------------------------------------------------------------- loading
 def load_3pl_traces(paths, part):
-    events = []
+    events, other_skus = [], set()
     for path in paths:
         rows = read_rows(path)
         h = find_header(rows, ['code', 'update qty'])
@@ -149,6 +149,7 @@ def load_3pl_traces(paths, part):
             if code not in DT_MOVES: continue
             if c['sku'] is not None and str(r[c['sku']]).strip() and \
                     str(r[c['sku']]).strip().lstrip('0') != part.lstrip('0'):
+                other_skus.add(str(r[c['sku']]).strip())
                 continue
             q = num(r[c['qty']])
             if q is None: continue
@@ -167,6 +168,9 @@ def load_3pl_traces(paths, part):
                                ref=str(r[c['ref']] or '').strip() if c['ref'] is not None else '',
                                note=str(r[c['notes']] or '') if c['notes'] is not None else '',
                                src=os.path.basename(path)))
+    if not events and other_skus:
+        raise ValueError(f'The 3PL trace has no movements for part {part}. It is for '
+                         f'{", ".join(sorted(other_skus)[:5])}. Check the part number you typed. Nothing has been logged.')
     return events
 
 
@@ -397,7 +401,11 @@ def append_csv(folder, name, header, rows, log=print):
     """Append rows to a CSV log, writing the header if the file is new. If the log is locked
     (open in Excel), the rows go to a dated side file instead so nothing is lost."""
     if not rows: return
-    os.makedirs(folder, exist_ok=True)
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError:
+        log(f'KPI log folder {folder} could not be reached. Nothing logged for {name}: check the drive and run again.')
+        return
     path = os.path.join(folder, name)
     try:
         new = not os.path.exists(path)
@@ -641,7 +649,7 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
         import getpass; who = getpass.getuser()
     except Exception:
         who = ''
-    run_id = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3]
+    run_id = 'R' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')[:-3]   # letters keep Excel from showing it as 2.02611E+16
     chk = {(c[0], c[1]): c for c in checks}
     kpi_rows = []
     for x in summary:
