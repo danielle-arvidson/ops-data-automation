@@ -30,6 +30,7 @@ This repo is a sanitised copy. Company names, file paths, account codes and real
 | [Movement request](apps/movement_request_app.py) | Every movement request and transfer order to the 3PL meant looking up stock line by line in the 3PL's web system, then typing part, batch, quantity and case count into their request template. | Reads the ERP order export, checks stock against the 3PL's daily stock CSV, fills the template, calculates cases from the 3PL's own pack config, and flags any line the 3PL can't cover. Getting the 3PL to email that daily CSV, in place of web lookups, is what made the tool possible. |
 | [Warehouse orders](apps/warehouse_order_app.py) | Orders from the three UK sites were checked by hand against the 3PL stock report, with case counts worked out line by line. | Checks every line against the 3PL's daily stock report, adds case counts, fills in the required date (next working day, or the day after if it's past 2pm), and turns short lines red. |
 | [Pack-out](apps/packout_app.py) | Packing lists came back from the 3PL with no order reference, so each line had to be matched by hand against several movement requests before it could be shipped in the ERP. | Matches part and batch against the movement request exports for that pack-out and fills SO, Line and Release, oldest request first. |
+| [Stock reconciliation](apps/stock_recon_app.py) | Reconciling the ERP against the 3PL's audit report, or against an onsite stock take, meant lining up thousands of lines by part and lot in Excel and then investigating each difference one at a time. | Matches both lists by owner, part and lot, repairing codes Excel has damaged. Suggests a reason for every difference in both directions and shows the net, which ties back to the report totals. One window covers 3PL reports and onsite count sheets. [User guide](docs/stock-reconciliation-guide.md). |
 
 The tools are used by the supply chain team.
 
@@ -91,8 +92,10 @@ These work in Outlook, SharePoint and the shared drive, and the data request que
 ```
 pip install -r requirements.txt
 python sample_data/make_samples.py
+python sample_data/make_recon_samples.py
 python apps/movement_request_app.py
+python apps/stock_recon_app.py
 python -m pytest
 ```
 
-Settings (folders, owner account codes, case-SKU pattern) are in `config.example.json`. Copy it to `config.json` to change them. The defaults point at the sample data.
+Settings (folders, owner account codes, case-SKU pattern, and the reconciliation warehouse mapping) are in `config.example.json`. Copy it to `config.json` to change them. The defaults point at the sample data.

@@ -4,7 +4,58 @@
     "movement_request_template": "sample_data/movement_request_template.xlsx",
     "movement_request_output": "output"
   },
-  "owner_ids": ["OWNER_A", "OWNER_B", "OWNER_C"],
+  "owner_ids": [
+    "OWNER_A",
+    "OWNER_B",
+    "OWNER_C"
+  ],
   "default_owner_id": "OWNER_A",
-  "case_sku_pattern": ".(CS)."
+  "case_sku_pattern": ".(CS).",
+  "reconciliation": {
+    "main_owner": "OWNER_A",
+    "erp_warehouse_owner": {
+      "3PL Main": "OWNER_A",
+      "3PL Overflow": "OWNER_A",
+      "3PL Export": "OWNER_C"
+    },
+    "erp_site_warehouse_owner": [
+      [
+        "Sales",
+        "External Warehouse",
+        "OWNER_B"
+      ]
+    ],
+    "erp_bin_owner": [
+      [
+        "Ecomm Warehouse",
+        "SHOP",
+        "OWNER_D"
+      ]
+    ],
+    "warehouse_code_owner": {
+      "TP01": "OWNER_A",
+      "TP02": "OWNER_A",
+      "SL01": "OWNER_B",
+      "EX01": "OWNER_C"
+    },
+    "warehouse_code_bin_owner": [
+      [
+        "EC01",
+        "SHOP",
+        "OWNER_D"
+      ]
+    ],
+    "non_inventory_parts": [
+      "PALLET-01",
+      "EDGE-01",
+      "CARTON-01"
+    ],
+    "hold_keyword": "pilot",
+    "hold_parts": [
+      "P900001"
+    ],
+    "hold_reason": "New product, goods in awaiting release",
+    "recent_days": 3,
+    "pending_receipt_bin": "RCV-01"
+  }
 }

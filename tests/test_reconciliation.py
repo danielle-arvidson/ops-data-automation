@@ -1,0 +1,76 @@
+import datetime
+import os
+import sys
+
+import pytest
+from openpyxl import load_workbook
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "sample_data"))
+
+import make_recon_samples  # noqa: E402
+from stocktools import reconciliation as rec  # noqa: E402
+
+S = os.path.join(ROOT, "sample_data")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def samples():
+    make_recon_samples.main()
+
+
+def reasons(path, tab):
+    ws = load_workbook(path)[tab]
+    return {(r[1], r[3] or ""): r[9] for r in ws.iter_rows(min_row=2, values_only=True)}
+
+
+def test_3pl_reasons_and_net(tmp_path):
+    out = str(tmp_path / "r.xlsx")
+    rec.run_3pl(os.path.join(S, "erp_stock_report_sample.xlsx"), os.path.join(S, "3pl_full_inventory_sample.xlsx"),
+                out, os.path.join(S, "erp_transactions_sample.txt"),
+                [os.path.join(S, "3pl_order_summary_sample.csv")], datetime.date(2026, 5, 15), log=lambda m: None)
+    hi = reasons(out, "3PL higher")
+    assert hi[("009201", "L201")] == rec.R_INVOICED
+    assert hi[("009204", "L204")] == rec.R_INVOICED
+    assert hi[("009205", "L205B")] == rec.R_RECEIVED_3PL
+    assert hi[("009202", "L202")] == rec.R_OTHER_SITE
+    assert hi[("009203", "L203")] == rec.R_NOT_AT_3PL
+    assert hi[("009206", "L206")] == rec.R_TRANSIT
+    assert hi[("009207", "L207A")] == rec.R_OFFSET
+    assert hi[("P900001", "H1")] == rec.R_HOLD
+    assert hi[("PALLET-01", "")] == rec.R_NONINV
+    assert hi[("009208", "L208")] == rec.R_TBD
+    lo = reasons(out, "ERP higher")
+    assert lo[("009209", "L209")] == rec.R_DESPATCHED
+    assert lo[("009210", "L210")] == rec.R_RECEIVED_EPI
+    assert lo[("009211", "L211")] == rec.R_TRANSIT
+    # leading zeros stripped by Excel still match; non-shop ecomm bins are left out
+    assert ("009214", "045120") not in hi and ("009214", "045120") not in lo
+    assert ("009213", "L213") not in lo
+
+
+def test_3pl_totals_tie(tmp_path):
+    out = str(tmp_path / "r.xlsx")
+    rec.run_3pl(os.path.join(S, "erp_stock_report_sample.xlsx"), os.path.join(S, "3pl_full_inventory_sample.xlsx"),
+                out, log=lambda m: None)
+    wb = load_workbook(out)
+    hi = sum(r[5] - r[4] for r in wb["3PL higher"].iter_rows(min_row=2, values_only=True))
+    lo = sum(r[4] - r[5] for r in wb["ERP higher"].iter_rows(min_row=2, values_only=True))
+    cmp_rows = list(wb["Comparison"].iter_rows(min_row=2, values_only=True))
+    assert hi - lo == pytest.approx(sum(r[5] for r in cmp_rows) - sum(r[4] for r in cmp_rows))
+
+
+def test_stocktake_reasons(tmp_path):
+    out = str(tmp_path / "s.xlsx")
+    rec.run_stocktake(os.path.join(S, "erp_stock_report_sample.xlsx"), os.path.join(S, "stock_take_count_sample.csv"),
+                      out, {("Site A", "Stores")},
+                      {"part": "Part", "lot": "Lot", "qty": "Counted Qty", "warehouse": None, "bin": "Bin"},
+                      by_bin=True, log=lambda m: None)
+    hi, lo = reasons(out, "Count higher"), reasons(out, "ERP higher")
+    assert hi[("009303", "L303")] == rec.S_BIN and lo[("009303", "L303")] == rec.S_BIN
+    assert hi[("009304", "L304B")] == rec.S_LOT and lo[("009304", "L304A")] == rec.S_LOT
+    assert hi[("009307", "L307")] == rec.S_OTHER_WH
+    assert hi[("FOUND-1", "X1")] == rec.S_FOUND
+    assert lo[("009305", "L305")] == rec.S_RCV
+    assert lo[("009306", "L306")] == rec.S_NOTFOUND

@@ -1,0 +1,5 @@
+Tran	Date	Part	Description	Rev	Whse	Warehouse	Bin	Type	Type	Invty	Quantity	UOM	Mtl Unit Cost	Entry Person	Reference	Job	Lot Number	Pack	Pack Line	PO	Line	Order	Line	Supplier Num	PO Receipt Qty	Packing Slip	Invoice	Line	Reason Code	DMR Number	RMA	ID	User	Employee	Sys Date	Sys Time
+1	14/05/2026	009201			TP01	3PL Main	TP01		STK-CUS		100						L201																		14/05/2026	
+2	14/05/2026	009206			SL01	External Warehouse	SL01		PLT-STK		40						L206																		14/05/2026	
+3	14/05/2026	009210			TP02	3PL Overflow	TP02		MFG-STK		80						L210																		14/05/2026	
+4	14/05/2026	009211			SL01	External Warehouse	SL01		PLT-STK		25						L211																		14/05/2026	
