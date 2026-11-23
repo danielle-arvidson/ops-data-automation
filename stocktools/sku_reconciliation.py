@@ -26,6 +26,7 @@ DT_MOVES = {'Receipt': 1, 'Shipment': -1, 'Owner Update': 1, 'Return': 1, 'Recei
 MATCH_DAYS = _S.get("match_days", 5)
 NO_EFFECT = {'ADJ-CST', 'ADJ-PUR'}
 KPI_FOLDER = _S.get("kpi_folder", "")
+DEFAULT_OWNER = _S.get("default_owner", "")
 
 
 def owner_mapping_text():
@@ -69,20 +70,28 @@ def to_date(v):
 
 
 def refbase(v):
-    """Order/pack reference without commas or 3PL suffixes (100234BK3 -> 100234)."""
+    """Order/pack reference without commas or 3PL suffixes (288091BK3 -> 288091)."""
     s = str(v or '').replace(',', '').strip().upper()
     if s in ('', '0', 'NONE', 'NAN'): return ''
     m = re.match(r'^(\d{4,})', s)
     return m.group(1) if m else s
 
 
-def read_rows(path):
-    """All rows from .xlsx, .xls, .csv or tab-delimited .txt as lists."""
+def read_rows(path, must=None):
+    """All rows from .xlsx, .xls, .csv or tab-delimited .txt as lists. For .xlsx, the first tab whose
+    header matches `must` is used (first tab if none match)."""
     p = path.lower()
     if p.endswith('.xlsx') or p.endswith('.xlsm'):
         from openpyxl import load_workbook
-        ws = load_workbook(path, read_only=True, data_only=True).worksheets[0]
-        return [list(r) for r in ws.iter_rows(values_only=True)]
+        wb = load_workbook(path, read_only=True, data_only=True)
+        tabs = [[list(r) for r in ws.iter_rows(values_only=True, max_row=None)] for ws in wb.worksheets]
+        if must:
+            for rows in tabs:
+                try:
+                    find_header(rows, must); return rows
+                except ValueError:
+                    pass
+        return tabs[0]
     if p.endswith('.xls'):
         import xlrd
         sh = xlrd.open_workbook(path).sheet_by_index(0)
@@ -103,10 +112,15 @@ def read_rows(path):
 
 
 def find_header(rows, must):
+    """must: list of column names, each a name or a tuple of accepted alternatives."""
+    alts = [tuple(a.lower() for a in (m if isinstance(m, tuple) else (m,))) for m in must]
     for i, r in enumerate(rows[:30]):
         names = [str(x).strip().lower() for x in r]
-        if all(m in names for m in must): return i
-    raise ValueError('Could not find a header row containing: ' + ', '.join(must))
+        if all(any(a in names for a in m) for m in alts): return i
+    first = next((r for r in rows[:30] if any(x not in (None, '') for x in r)), [])
+    raise ValueError('Could not find a header row with columns: ' + ' and '.join('/'.join(m) for m in alts) +
+                     '. First row in the file reads: ' + ', '.join(str(x) for x in first[:12] if x not in (None, '')) +
+                     '. Check this is the ERP transaction BAQ export, not a 3PL file or a stock report.')
 
 
 def pick(hdr, *names, last=False):
@@ -158,6 +172,9 @@ def load_3pl_traces(paths, part):
 
 def erp_owner(code, name, bin_):
     code, name, b = str(code or '').strip().upper(), str(name or '').strip(), str(bin_ or '').strip().upper()
+    # some exports (e.g. a lot tracker) put the warehouse code in a column called Warehouse
+    if not code and (name.upper() in WHSE_OWNER or any(w == name.upper() for w, _ in BIN_CODE_OWNER)):
+        code = name.upper()
     if any(w == code for w, _ in BIN_CODE_OWNER): return BIN_CODE_OWNER.get((code, b))
     if any(w == name for w, _ in BIN_NAME_OWNER): return BIN_NAME_OWNER.get((name, b))
     if code in WHSE_OWNER: return WHSE_OWNER[code]
@@ -183,9 +200,12 @@ def erp_sign(tt, cls, q):
     return 0
 
 
-def load_erp(path, part):
-    rows = read_rows(path)
-    h = find_header(rows, ['part', 'quantity'])
+def load_erp(path, part, default_lot=''):
+    # Accepts the transaction BAQ (has Part and Lot columns) or the Lot Tracker PartTran export
+    # (one part and one lot per file, so no Part or Lot column)
+    must = [('quantity', 'tran qty', 'tranqty'), ('type', 'tran type', 'trantype')]
+    rows = read_rows(path, must)
+    h = find_header(rows, must)
     hdr = rows[h]
     types = [i for i, x in enumerate(hdr) if str(x).strip().lower() == 'type']
     c = dict(part=pick(hdr, 'Part', 'Part Num', 'PartNum'), qty=pick(hdr, 'Quantity', 'Tran Qty'),
@@ -196,13 +216,14 @@ def load_erp(path, part):
              tdate=pick(hdr, 'Date', 'Tran Date', 'Date From'), syst=pick(hdr, 'Sys Time', 'SysTime'),
              tran=pick(hdr, 'Tran', 'Tran Num', 'TranNum'), order=pick(hdr, 'Order', 'Order Num'),
              pack=pick(hdr, 'Pack', 'Packing Slip'), po=pick(hdr, 'PO'), ref=pick(hdr, 'Reference'),
-             rma=pick(hdr, 'RMA'), reason=pick(hdr, 'Reason Code'), user=pick(hdr, 'User', 'Entry Person'),
+             rma=pick(hdr, 'RMA'), reason=pick(hdr, 'Reason Code'), user=pick(hdr, 'User', 'User ID', 'Entry Person'),
              invty=pick(hdr, 'Invty'))
     sys_dated = c['sysd'] is not None
-    out = []
+    out, ctx = [], []   # ctx: ERP movements outside 3PL warehouses, shown for context only
     for r in rows[h + 1:]:
-        if len(r) <= c['qty'] or not r[c['part']]: continue
-        if str(r[c['part']]).strip().lstrip('0') != part.lstrip('0'): continue
+        if len(r) <= c['qty']: continue
+        if c['part'] is not None:
+            if not r[c['part']] or str(r[c['part']]).strip().lstrip('0') != part.lstrip('0'): continue
         if c['invty'] is not None and str(r[c['invty']]).strip().lower() == 'false': continue
         q = num(r[c['qty']])
         if q is None: continue
@@ -212,15 +233,15 @@ def load_erp(path, part):
         if not eff: continue
         g = erp_owner(r[c['whse']] if c['whse'] is not None else '', r[c['wname']] if c['wname'] is not None else '',
                          r[c['bin']] if c['bin'] is not None else '')
-        if g is None: continue
         d = to_date(r[c['sysd']] if sys_dated else r[c['tdate']]) if (sys_dated or c['tdate'] is not None) else None
         if d and sys_dated and c['syst'] is not None:
             s = num(r[c['syst']])
             if s is not None and s < 86400: d = d + datetime.timedelta(seconds=s)
         g_ref = lambda k: str(r[c[k]] or '').strip() if c[k] is not None else ''
         refs = [x for x in (g_ref('order'), g_ref('pack'), g_ref('po'), g_ref('ref'), g_ref('rma')) if refbase(x)]
-        out.append(dict(sys='ERP', owner=g, lot=lotkey(r[c['lot']]) if c['lot'] is not None else '',
-                        lot_raw=str(r[c['lot']] or '') if c['lot'] is not None else '', type=tt, qty=eff, date=d,
+        (out if g is not None else ctx).append(dict(sys='ERP', owner=g,
+                        lot=lotkey(r[c['lot']]) if c['lot'] is not None else lotkey(default_lot),
+                        lot_raw=str(r[c['lot']] or '') if c['lot'] is not None else default_lot, type=tt, qty=eff, date=d,
                         ref=' / '.join(refs), refs={refbase(x) for x in refs},
                         tran=num(g_ref('tran')) or 0, reason=g_ref('reason'), user=g_ref('user'),
                         whse=g_ref('whse') or g_ref('wname'), src=os.path.basename(path)))
@@ -230,23 +251,46 @@ def load_erp(path, part):
     kept = []
     for k, es in grp.items():
         if abs(sum(e['qty'] for e in es)) < 1e-9 and len(es) > 1: continue
-        kept.extend(es)
+        # cancel a posting and its reversal (e.g. STK-CUS -5, +5, -5 on one order: keep one -5)
+        rest = list(es)
+        for e in es:
+            if e not in rest: continue
+            opp = next((x for x in rest if x is not e and abs(x['qty'] + e['qty']) < 1e-9), None)
+            if opp is not None: rest.remove(e); rest.remove(opp)
+        kept.extend(rest)
+    # transfers between two 3PL warehouses of the same owner (STK-PLT out, PLT-STK in on the same pack) net out
+    tg = collections.defaultdict(list)
+    for e in kept:
+        if e['type'] in ('STK-PLT', 'PLT-STK') and e['ref']: tg[(e['owner'], e['lot'], e['ref'])].append(e)
+    drop = set()
+    for es in tg.values():
+        if len({e['type'] for e in es}) == 2 and abs(sum(e['qty'] for e in es)) < 1e-9:
+            drop.update(id(e) for e in es)
+    kept = [e for e in kept if id(e) not in drop]
     kept.sort(key=lambda e: (e['date'] or datetime.datetime.min, e['tran']))
-    return kept, sys_dated
+    if c['lot'] is None: sys_dated = 'lot tracker' if not sys_dated else sys_dated
+    ctx.sort(key=lambda e: (e['date'] or datetime.datetime.min, e['tran']))
+    return kept, sys_dated, ctx
 
 
-def parse_onhand(text, is_erp):
-    """Pasted lines: Lot, Owner or Warehouse, Qty (tab or comma separated). Header lines are skipped."""
+def parse_onhand(text, is_erp, default_owner=None):
+    default_owner = default_owner or DEFAULT_OWNER or next(iter(WHSE_OWNER.values()), '')
+    """Typed or pasted lines: 'Lot Owner Qty' (or 'Lot Warehouse Qty' for ERP), or just 'Lot Qty' to use
+    the default owner. Tabs, commas or spaces between values. Lines without a number at the end are skipped."""
     out = collections.defaultdict(float)
     for line in (text or '').splitlines():
-        parts = [p.strip() for p in re.split(r'\t|,(?=\S)', line) if p.strip() != '']
-        if len(parts) < 3: continue
+        parts = [p for p in re.split(r'[\t,; ]+', line.strip()) if p]
+        if len(parts) < 2: continue
         q = num(parts[-1])
         if q is None: continue
-        lot, loc = parts[0], parts[1]
-        owner = loc.upper()
-        if is_erp:
-            owner = onhand_owner(loc)
+        lot = parts[0]
+        if len(parts) == 2:
+            owner = default_owner
+        else:
+            loc = ' '.join(parts[1:-1])
+            owner = loc.upper()
+            if is_erp:
+                owner = onhand_owner(loc)
         out[(owner, lotkey(lot))] += q
     return out
 
@@ -256,8 +300,8 @@ def match_events(dt_ev, ep_ev):
     """Pair 3PL and ERP movements per owner and lot: by reference first, then by qty and date."""
     for e in dt_ev: e['refb'] = refbase(e['ref']); e['pair'] = None
     for e in ep_ev: e['pair'] = None
-    # 1. reference match, same owner, lot and direction. the 3PL is grouped by its full reference
-    #    (100234BK1, 100234BK3), the ERP by the base reference (100234); 3PL groups whose qty adds up
+    # 1. reference match, same owner, lot and direction. 3PL is grouped by its full reference
+    #    (288091BK1, 288091BK3), ERP by the base reference (288091); 3PL groups whose qty adds up
     #    to ERP's pair, any extra 3PL group stays unmatched.
     from itertools import combinations
     dg, eg = collections.defaultdict(lambda: collections.defaultdict(list)), collections.defaultdict(list)
@@ -283,7 +327,8 @@ def match_events(dt_ev, ep_ev):
             for e in ees: e['pair'] = tag
         else:
             dq = sum(x[2] for x in items)
-            notes.append(dict(owner=k[0], lot=k[1], ref=k[2], tpl=dq, erp=eq))
+            notes.append(dict(owner=k[0], lot=k[1], ref=k[2], dt=dq, erp=eq,
+                              date=min((e['date'] for e in ees if e['date']), default=None), how='shared reference'))
             for _, evs, _ in items:
                 for e in evs: e['pair'] = tag + ' (qty differs)'
             for e in ees: e['pair'] = tag + ' (qty differs)'
@@ -298,6 +343,21 @@ def match_events(dt_ev, ep_ev):
             if gap <= MATCH_DAYS and (best is None or gap < best[0]): best = (gap, e)
         if best:
             d['pair'] = best[1]['pair'] = f'qty and date ({best[0]} day{"s" if best[0] != 1 else ""} apart)'
+    # 3. same owner, lot and direction within MATCH_DAYS but a different qty: likely the same movement
+    #    booked with different quantities (e.g. ERP moves 3,001 into 3PL, 3PL receipts 1)
+    for d in dt_ev:
+        if d['pair'] or not d['date']: continue
+        best = None
+        for e in ep_ev:
+            if e['pair'] or not e['date'] or e['owner'] != d['owner'] or e['lot'] != d['lot'] or (e['qty'] > 0) != (d['qty'] > 0):
+                continue
+            gap = abs((e['date'] - d['date']).days)
+            if gap <= MATCH_DAYS and (best is None or gap < best[0]): best = (gap, e)
+        if best:
+            e = best[1]
+            d['pair'] = e['pair'] = f'likely same movement, qty differs ({best[0]} day{"s" if best[0] != 1 else ""} apart)'
+            notes.append(dict(owner=d['owner'], lot=d['lot'], ref=d['ref'] or e['ref'] or 'no ref', dt=d['qty'],
+                              erp=e['qty'], date=min(d['date'], e['date']), how='date and direction, no shared reference'))
     return notes
 
 
@@ -313,8 +373,10 @@ def explain(e):
                               'Shipment reversed in ERP; no matching 3PL movement')
     if t in ('PUR-STK', 'MFG-STK', 'INS-STK'): return 'Received in ERP; no matching 3PL receipt'
     if t in ('PLT-STK', 'STK-PLT'): return f'Transferred {"into" if q > 0 else "out of"} this owner in ERP; no matching 3PL owner change'
+    if t == 'STK-STK': return ('Moved into a 3PL warehouse in ERP; 3PL has no matching receipt' if q > 0 else
+                              'Moved out of a 3PL warehouse in ERP; 3PL has no matching movement')
     if t in ('ADJ-QTY', 'STK-UKN', 'STK-MTL', 'UKN-STK'): return f'{t} in ERP (reason {e.get("reason") or "none"}); 3PL has no matching movement'
-    return f'{t} in ERP with no match at the 3PL'
+    return f'{t} in ERP with no match at 3PL'
 
 
 def category(e):
@@ -323,9 +385,10 @@ def category(e):
     if s == '3PL':
         return {'Shipment': '3PL shipment not in ERP', 'Receipt': '3PL receipt not in ERP',
                 'Owner Update': 'Owner move not in ERP', 'Return': '3PL return not in ERP'}.get(t, 'Other 3PL movement')
-    if t == 'STK-CUS': return 'ERP shipment not at the 3PL' if q < 0 else 'ERP shipment reversal'
-    if t in ('PUR-STK', 'MFG-STK', 'INS-STK'): return 'ERP receipt not at the 3PL'
-    if t in ('PLT-STK', 'STK-PLT'): return 'ERP transfer not at the 3PL'
+    if t == 'STK-CUS': return 'ERP shipment not at 3PL' if q < 0 else 'ERP shipment reversal'
+    if t in ('PUR-STK', 'MFG-STK', 'INS-STK'): return 'ERP receipt not at 3PL'
+    if t in ('PLT-STK', 'STK-PLT'): return 'ERP transfer not at 3PL'
+    if t == 'STK-STK': return 'ERP move into 3PL not received' if q > 0 else 'ERP move out of 3PL not at 3PL'
     if t in ('ADJ-QTY', 'STK-UKN', 'STK-MTL', 'UKN-STK'): return 'ERP adjustment or misc'
     return 'Other ERP movement'
 
@@ -350,7 +413,8 @@ def append_csv(folder, name, header, rows, log=print):
 
 
 # ---------------------------------------------------------------- run
-def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_text='', log=print, kpi_folder=None):
+def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_text='', log=print, kpi_folder=None,
+        lots='', default_owner=None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter as L
@@ -359,9 +423,28 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
     dt_ev = load_3pl_traces(trace_paths, part)
     log(f'  {len(dt_ev)} 3PL movements (Receipt, Shipment, Owner Update, Return, Receipt Reverse)')
     log('Reading ERP history...')
-    ep_ev, sys_dated = load_erp(erp_path, part)
-    log(f'  {len(ep_ev)} ERP stock movements at the 3PL warehouses')
-    dt_oh, ep_oh = parse_onhand(tpl_onhand_text, False), parse_onhand(erp_onhand_text, True)
+    only_list = [x for x in re.split(r'[\s,;]+', lots or '') if x.strip()]
+    stem = os.path.splitext(os.path.basename(erp_path))[0].split('-')[-1].strip()
+    default_lot = only_list[0] if len(only_list) == 1 else stem
+    ep_ev, sys_dated, ctx_ev = load_erp(erp_path, part, default_lot)
+    if sys_dated == 'lot tracker':
+        sys_dated = False
+        log(f'  Lot Tracker export (no Part or Lot column): treated as part {part}, lot {default_lot} '
+            f'({"from Lots to check" if len(only_list) == 1 else "from the file name"}). Sequenced on Tran Date.')
+    log(f'  {len(ep_ev)} ERP stock movements at 3PL warehouses, {len(ctx_ev)} elsewhere (shown for context)')
+    dt_oh, ep_oh = parse_onhand(tpl_onhand_text, False, default_owner), parse_onhand(erp_onhand_text, True, default_owner)
+    only = {lotkey(x) for x in re.split(r'[\s,;]+', lots or '') if x.strip()}
+    if not only:
+        ep_lots = {e['lot'] for e in ep_ev}
+        extra = {e['lot'] for e in dt_ev} - ep_lots
+        if ep_lots and extra:
+            log(f'Note: the 3PL trace has {len(extra)} lot(s) that are not in the ERP export. If the export was '
+                f'filtered by lot, enter the lots to check so those are left out.')
+    if only:
+        dt_ev = [e for e in dt_ev if e['lot'] in only]; ep_ev = [e for e in ep_ev if e['lot'] in only]
+        ctx_ev = [e for e in ctx_ev if e['lot'] in only]
+        dt_oh = {k: v for k, v in dt_oh.items() if k[1] in only}; ep_oh = {k: v for k, v in ep_oh.items() if k[1] in only}
+        log('Checking lots: ' + ', '.join(sorted(only)))
     qty_notes = match_events(dt_ev, ep_ev)
 
     ep_first = min((e['date'] for e in ep_ev if e['date']), default=None)
@@ -370,15 +453,24 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
     for e in dt_ev: dt_net[(e['owner'], e['lot'])] += e['qty']
     for e in ep_ev: ep_net[(e['owner'], e['lot'])] += e['qty']
     keys = sorted(set(dt_net) | set(ep_net) | set(dt_oh) | set(ep_oh))
+    dt_owners_typed, ep_owners_typed = {k[0] for k in dt_oh}, {k[0] for k in ep_oh}
+    log('Owners in the 3PL trace: ' + (', '.join(sorted({e['owner'] for e in dt_ev})) or 'none'))
+    log('Owners in the ERP history: ' + (', '.join(sorted({e['owner'] for e in ep_ev})) or 'none'))
+    for nm, typed, net in (('3PL', dt_owners_typed, dt_net), ('ERP', ep_owners_typed, ep_net)):
+        miss = sorted({k[0] for k in keys} - typed)
+        if (dt_oh or ep_oh) and miss:
+            log(f'  {nm} on hand not typed for {", ".join(miss)}: using the {nm} movement totals for those owners')
     lots_raw = {}
-    for e in dt_ev + ep_ev: lots_raw.setdefault(e['lot'], e['lot_raw'])
+    for e in dt_ev + ep_ev + ctx_ev: lots_raw.setdefault(e['lot'], e['lot_raw'])
 
     summary, timeline, checks = [], [], []
     total_diff = 0.0
     for k in keys:
         owner, lot = k
-        dto = dt_oh.get(k, 0.0) if dt_oh else None   # pasted list: anything not listed is 0
-        epo = ep_oh.get(k, 0.0) if ep_oh else None
+        # typed on hand: a lot not listed for an owner you typed figures for is 0; an owner you typed
+        # nothing for uses its trace/history total, and its tie check says so
+        dto = dt_oh.get(k, 0.0) if owner in dt_owners_typed else None
+        epo = ep_oh.get(k, 0.0) if owner in ep_owners_typed else None
         dtn, epn = dt_net.get(k, 0.0), ep_net.get(k, 0.0)
         dt_ref = dto if dto is not None else dtn
         ep_ref = epo if epo is not None else epn
@@ -389,13 +481,21 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
         # openings so each history ends at its on-hand figure
         dbal, ebal = dt_ref - dtn, ep_ref - epn
         last_agree = None if abs(dbal - ebal) > 1e-9 else 'start of history'
+        real_agree, alone = last_agree, None   # alone: the one-sided movement that made the balances agree
         for e in evs:
+            was = abs(dbal - ebal) < 1e-9
             if e['sys'] == '3PL': dbal += e['qty']
             else: ebal += e['qty']
-            if abs(dbal - ebal) < 1e-9: last_agree = e['date']
+            if abs(dbal - ebal) < 1e-9:
+                last_agree = e['date']
+                if not was and not e['pair']: alone = e
+                else: alone = None; real_agree = e['date']
+            elif was: alone = None
             timeline.append([owner, lots_raw.get(lot, lot), e['date'], e['sys'], e['type'], e['qty'], e['ref'],
                              e.get('reason', ''), e.get('user', ''), e['pair'] or 'NO MATCH',
-                             '' if e['pair'] else explain(e), dbal, ebal, dbal - ebal])
+                             (explain(e) if not e['pair'] else
+                              'Same movement in both systems with different quantities: see the Qty differs tab'
+                              if 'qty differs' in e['pair'] else ''), dbal, ebal, dbal - ebal])
         unmatched = [e for e in evs if not e['pair']]
         for e in unmatched:
             first = ep_first if e['sys'] == '3PL' else dt_first
@@ -410,11 +510,28 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
                               + (' [before the other system\'s history starts: may be outside the export]' if e.get('before') else '')
                               if e['date'] else explain(e) for e in u[:3])
         else: cause = 'All movements pair up: check the on-hand figures and any qty-differs references'
-        ties_dt = '' if dto is None else ('Yes' if abs(dto - dtn) < 1e-9 else f'No (trace {dtn:,.0f})')
-        ties_ep = '' if epo is None else ('Yes' if abs(epo - epn) < 1e-9 else f'No (history {epn:,.0f})')
-        summary.append([owner, lots_raw.get(lot, lot), dt_ref, ep_ref, diff, ties_dt, ties_ep,
-                        last_agree if isinstance(last_agree, datetime.datetime) else (last_agree or 'Not in this history'),
+        ties_dt = ('Not typed: trace total used' if (dt_oh or ep_oh) else '') if dto is None else ('Yes' if abs(dto - dtn) < 1e-9 else f'No (trace {dtn:,.0f})')
+        ties_ep = ('Not typed: history total used' if (dt_oh or ep_oh) else '') if epo is None else ('Yes' if abs(epo - epn) < 1e-9 else f'No (history {epn:,.0f})')
+        qd = [n for n in qty_notes if (n['owner'], n['lot']) == k]
+        if qd:
+            cause = '; '.join(f"Same movement booked with different quantities: 3PL {n['dt']:+,.0f}, ERP {n['erp']:+,.0f} "
+                              f"({n['ref']}{', ' + format(n['date'], '%d/%m/%Y') if n.get('date') else ''}; matched on {n['how']})"
+                              for n in qd) + ('' if cause.startswith('All movements pair up') else '; ' + cause)
+            if not main: cat = 'Qty differs between systems'
+        def fmt(v): return v.strftime('%d/%m/%Y') if isinstance(v, datetime.datetime) else (v or 'Not in this history')
+        if alone is not None:
+            agree_txt = (f"{fmt(last_agree)}, but only because {'3PL' if alone['sys'] == '3PL' else 'ERP'} moved it alone "
+                         f"({alone['type']}, no matching movement in the other system). Before that: {fmt(real_agree)}")
+        else:
+            agree_txt = last_agree if isinstance(last_agree, datetime.datetime) else (last_agree or 'Not in this history')
+        summary.append([owner, lots_raw.get(lot, lot), dt_ref, ep_ref, diff, ties_dt, ties_ep, agree_txt,
                         len(unmatched), cause, cat])
+    for e in ctx_ev:
+        timeline.append(['Outside 3PL', lots_raw.get(e['lot'], e['lot']), e['date'], 'ERP', e['type'], e['qty'], e['ref'],
+                         e.get('reason', ''), e.get('user', ''), 'CONTEXT',
+                         f"ERP movement at {e['whse'] or 'a non-3PL warehouse'}, outside 3PL. Does not affect the 3PL vs ERP balance",
+                         None, None, None])
+    timeline.sort(key=lambda t: (str(t[1]), t[2] or datetime.datetime.min, 0 if t[0] != 'Outside 3PL' else 1))
     # checks for each line that differs
     for s in summary:
         owner, lot, dt_ref, ep_ref, diff = s[:5]
@@ -428,10 +545,13 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
         ev_dt = [t for t in timeline if t[0] == owner and t[1] == lot and t[3] == '3PL' and t[9] == 'NO MATCH']
         ev_ep = [t for t in timeline if t[0] == owner and t[1] == lot and t[3] == 'ERP' and t[9] == 'NO MATCH']
         tie = s[5]
-        if ev_dt and not ev_ep and tie != '' and tie.startswith('Yes'):
-            which = 'Likely ERP: 3PL has movements ERP lacks, and the 3PL\'s trace ties to its on hand'
+        if any((n['owner'], lots_raw.get(n['lot'], n['lot'])) == (owner, lot) for n in qty_notes) and not ev_dt and not ev_ep:
+            which = ('Not established: both systems booked the movement, with different quantities. '
+                     'Check the physical receipt paperwork')
+        elif ev_dt and not ev_ep and tie != '' and tie.startswith('Yes'):
+            which = 'Likely ERP: 3PL has movements ERP lacks, and 3PL\'s trace ties to its on hand'
         elif ev_ep and not ev_dt:
-            which = 'Not established: ERP has movements the 3PL lacks. Needs the 3PL to confirm physically'
+            which = 'Not established: ERP has movements 3PL lacks. Needs 3PL to confirm physically'
         else:
             which = 'Not established'
         phys = (f'3PL system shows {dt_ref:,.0f} under {owner}. Not physically confirmed' if dt_ref
@@ -452,7 +572,7 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
                 c = ws.cell(i, j, v); c.font = F; c.alignment = Alignment(vertical='top', wrap_text=isinstance(v, str) and len(v) > 40)
                 if isinstance(v, (int, float)): c.number_format = NUM
                 if isinstance(v, datetime.datetime): c.number_format = DT_FMT
-            if (red_col == 'diff' and abs(r[4]) > 1e-9) or (isinstance(red_col, int) and r[red_col] == 'NO MATCH'):
+            if (red_col == 'diff' and abs(r[4]) > 1e-9) or (red_col == 'diff2' and abs(r[4]) > 1e-9) or (isinstance(red_col, int) and (r[red_col] == 'NO MATCH' or 'qty differs' in str(r[red_col]))):
                 for j in range(1, len(r) + 1): ws.cell(i, j).fill = RED
         for j, w in enumerate(widths, 1): ws.column_dimensions[L(j)].width = w
         return start + len(rows) + 1
@@ -465,7 +585,8 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
              'Vehicle Load, PreAdv Line, Stock Check and Repack net to zero at owner level.',
              ('ERP movements are sequenced on Sys Date and Sys Time.' if sys_dated else
               'ERP export has no Sys Date: sequenced on Tran Date, so the order is NOT verified.'),
-             'On hand: ' + ('pasted figures used.' if (dt_oh or ep_oh) else
+             'On hand: ' + ('typed figures used. For an owner with no typed figures, that system\'s movement total is used.'
+                            if (dt_oh or ep_oh) else
                             'none pasted, so balances are the trace/history totals and the tie checks are blank.')]
     r = 3
     for n in notes:
@@ -476,6 +597,15 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
               [x[:10] for x in summary], [11, 16, 13, 14, 15, 18, 20, 20, 12, 90], r, red_col='diff')
     ws.cell(r, 1, f'Net difference for the part (3PL minus ERP): {total_diff:,.2f}').font = B
     r += 2
+    ws.cell(r, 1, 'By owner').font = B; r += 1
+    by = collections.OrderedDict()
+    for x in summary:
+        b = by.setdefault(x[0], [0.0, 0.0, 0.0, 0])
+        b[0] += x[2]; b[1] += x[3]; b[2] += x[4]; b[3] += 1 if abs(x[4]) > 1e-9 else 0
+    r = table(ws, ['Owner', 'Lots', '3PL on hand', 'ERP on hand', '3PL minus ERP', 'Lots that differ'],
+              [[o, sum(1 for x in summary if x[0] == o), b[0], b[1], b[2], b[3]] for o, b in by.items()],
+              [11, 16, 13, 14, 15, 18, 20, 20, 12, 90], r, red_col='diff2')
+    r += 1
     ws.cell(r, 1, 'Before naming any correction').font = B; r += 1
     r = table(ws, ['Owner', 'Lot', '3PL minus ERP', '1. Does the stock physically exist, and where?',
                    '2. Which system holds the error?', '3. Quantity or only an attribute?'], checks,
@@ -493,9 +623,10 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
           timeline, [10, 14, 17, 8, 14, 12, 26, 10, 18, 26, 55, 12, 13, 14], red_col=9)
     t.freeze_panes = 'A2'; t.auto_filter.ref = t.dimensions
     q = wb.create_sheet('Qty differs')
-    table(q, ['Owner', 'Lot', 'Reference', '3PL qty', 'ERP qty'],
-          [[n['owner'], lots_raw.get(n['lot'], n['lot']), n['ref'], n['tpl'], n['erp']] for n in qty_notes],
-          [10, 14, 16, 12, 12])
+    table(q, ['Owner', 'Lot', 'Reference', 'Date', '3PL qty', 'ERP qty', '3PL minus ERP', 'Matched on'],
+          [[n['owner'], lots_raw.get(n['lot'], n['lot']), n['ref'], n.get('date'), n['dt'], n['erp'],
+            n['dt'] - n['erp'], n.get('how', '')] for n in qty_notes],
+          [10, 14, 22, 17, 12, 12, 15, 34])
     raw = wb.create_sheet('3PL movements')
     table(raw, ['File', 'Owner', 'Batch', 'Code', 'Qty (signed)', 'Date', 'Reference', 'Notes'],
           [[e['src'], e['owner'], e['lot_raw'], e['type'], e['qty'], e['date'], e['ref'], e['note']] for e in dt_ev],
@@ -503,7 +634,8 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
     raw = wb.create_sheet('ERP movements')
     table(raw, ['Tran', 'Owner', 'Warehouse', 'Lot', 'Type', 'Qty (signed)', 'Date', 'Reference', 'Reason', 'User'],
           [[e['tran'], e['owner'], e['whse'], e['lot_raw'], e['type'], e['qty'], e['date'], e['ref'], e['reason'],
-            e['user']] for e in ep_ev], [10, 10, 10, 14, 10, 12, 17, 26, 10, 18])
+            e['user']] for e in ep_ev] + [[e['tran'], 'Outside 3PL', e['whse'], e['lot_raw'], e['type'], e['qty'], e['date'],
+            e['ref'], e['reason'], e['user']] for e in ctx_ev], [10, 10, 10, 14, 10, 12, 17, 26, 10, 18])
     wb.save(out_path)
     try:
         import getpass; who = getpass.getuser()
@@ -535,5 +667,3 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
     log(f'Net difference: {total_diff:+,.2f}')
     log('Saved: ' + out_path)
     return summary, checks
-
-

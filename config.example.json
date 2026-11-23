@@ -62,6 +62,7 @@
   },
   "sku_reconciliation": {
     "match_days": 5,
-    "kpi_folder": ""
+    "kpi_folder": "",
+    "default_owner": ""
   }
 }

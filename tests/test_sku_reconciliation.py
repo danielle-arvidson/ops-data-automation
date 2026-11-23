@@ -37,7 +37,10 @@ def test_differences_and_causes(tmp_path):
     assert c[("OWNER_A", "L404")][5].startswith("Attribute only")
     assert c[("OWNER_B", "L401")][5] == "Quantity"
     # every trace and history ties to its on-hand figure
-    assert all(r[5] == "Yes" and r[6] == "Yes" for r in s.values())
+    # owners with no typed on-hand use their movement totals and say so
+    assert all(r[5] in ("Yes", "Not typed: trace total used") and
+               r[6] in ("Yes", "Not typed: history total used") for r in s.values())
+    assert s[("OWNER_A", "L404")][6] == "Not typed: history total used"
 
 
 def test_kpi_log(tmp_path):
@@ -53,3 +56,34 @@ def test_kpi_log(tmp_path):
 def test_workbook_tabs(tmp_path):
     _, _, out = run(tmp_path)
     assert load_workbook(out).sheetnames == ["Summary", "Timeline", "Qty differs", "3PL movements", "ERP movements"]
+
+
+def test_typed_onhand_default_owner():
+    oh = sku.parse_onhand("L1 5\nL2, OWNER_B, 7", False, "OWNER_A")
+    assert oh[("OWNER_A", "L1")] == 5 and oh[("OWNER_B", "L2")] == 7
+
+
+def test_lot_tracker_export_and_reversals(tmp_path):
+    """A lot tracker export has no Part or Lot column; a posting and its reversal cancel out."""
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active
+    ws.append(["Tran Date", "Type", "Quantity", "UOM", "Warehouse", "Bin", "Order"])
+    wh = next(iter(sku.WHSE_OWNER))
+    ws.append([__import__("datetime").datetime(2026, 4, 10), "PUR-STK", 400, "EA", wh, wh, 0])
+    ws.append([__import__("datetime").datetime(2026, 4, 10), "ADJ-CST", 400, "EA", wh, None, 0])
+    for q in (5, -5, 5):
+        ws.append([__import__("datetime").datetime(2026, 8, 20), "STK-CUS", q, "EA", wh, wh, 286938])
+    path = str(tmp_path / "12940.xlsx"); wb.save(path)
+    ev, sys_dated, ctx = sku.load_erp(path, "ANYPART", "12940")
+    assert sys_dated == "lot tracker"
+    assert [(e["type"], e["qty"]) for e in ev] == [("PUR-STK", 400), ("STK-CUS", -5)]
+    assert all(e["lot"] == "12940" for e in ev)
+
+
+def test_same_movement_different_qty_pairs():
+    d = dict(sys="3PL", owner="A", lot="1", type="Receipt", qty=1, ref="R1",
+             date=__import__("datetime").datetime(2026, 3, 23))
+    e = dict(sys="ERP", owner="A", lot="1", type="STK-STK", qty=3001, ref="", refs=set(),
+             date=__import__("datetime").datetime(2026, 3, 24))
+    notes = sku.match_events([d], [e])
+    assert "qty differs" in d["pair"] and notes[0]["dt"] == 1 and notes[0]["erp"] == 3001
