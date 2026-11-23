@@ -24,6 +24,7 @@ BIN_NAME_OWNER = {(a, b.upper()): c for a, b, c in _R.get("erp_bin_owner", [])}
 # PreAdv Line, Stock Check and Repack net to zero at owner level, so they are ignored.
 DT_MOVES = {'Receipt': 1, 'Shipment': -1, 'Owner Update': 1, 'Return': 1, 'Receipt Reverse': 1}
 MATCH_DAYS = _S.get("match_days", 5)
+AI = _S.get("ai", {})   # optional AI summary step, off unless enabled
 NO_EFFECT = {'ADJ-CST', 'ADJ-PUR'}
 KPI_FOLDER = _S.get("kpi_folder", "")
 DEFAULT_OWNER = _S.get("default_owner", "")
@@ -422,7 +423,9 @@ def append_csv(folder, name, header, rows, log=print):
 
 # ---------------------------------------------------------------- run
 def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_text='', log=print, kpi_folder=None,
-        lots='', default_owner=None):
+        lots='', default_owner=None, ai_client=None):
+    """ai_client: anything with complete(system, user) -> (text, tokens_in, tokens_out). If None and the
+    config's sku_reconciliation.ai.enabled is true, an Anthropic client is created. Otherwise no AI step."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter as L
@@ -644,12 +647,35 @@ def run(part, trace_paths, erp_path, out_path, tpl_onhand_text='', erp_onhand_te
           [[e['tran'], e['owner'], e['whse'], e['lot_raw'], e['type'], e['qty'], e['date'], e['ref'], e['reason'],
             e['user']] for e in ep_ev] + [[e['tran'], 'Outside 3PL', e['whse'], e['lot_raw'], e['type'], e['qty'], e['date'],
             e['ref'], e['reason'], e['user']] for e in ctx_ev], [10, 10, 10, 14, 10, 12, 17, 26, 10, 18])
+    run_id = 'R' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')[:-3]   # letters keep Excel from showing it as 2.02611E+16
+    differs = [s for s in summary if abs(s[4]) > 1e-9]
+    if differs and (ai_client is not None or AI.get('enabled')):
+        from . import ai_summary
+        client = ai_client or ai_summary.AnthropicClient(AI.get('model', 'claude-haiku-5-5'), AI.get('max_tokens', 600))
+        chk_by = {(c[0], c[1]): c for c in checks}
+        cases = [ai_summary.build_case(part, s, chk_by.get((s[0], s[1])),
+                                       [t for t in timeline if t[0] == s[0] and t[1] == s[1] and t[9] == 'NO MATCH'],
+                                       [n for n in qty_notes if (n['owner'], lots_raw.get(n['lot'], n['lot'])) == (s[0], s[1])])
+                 for s in differs]
+        log(f'AI summary: {len(cases)} line(s) that differ' + (', identifiers masked' if AI.get('mask_identifiers', True) else ''))
+        ai_rows = ai_summary.summarise(cases, client, AI.get('mask_identifiers', True), log)
+        aws = wb.create_sheet('AI summary', 1)
+        aws.cell(1, 1, 'Drafted by an AI model from the facts on the Summary tab. Check before using. '
+                       'Figures not found in the facts are flagged in Checks. Nothing has been posted.').font = B
+        table(aws, ['Owner', 'Lot', 'Summary', '3PL email draft', 'Checks', 'Tokens in', 'Tokens out'],
+              [[r['case']['owner'], r['case']['lot'], r['result']['summary'], r['result']['email'],
+                '; '.join(r['issues']) or 'Passed', r['in'], r['out']] for r in ai_rows],
+              [10, 14, 70, 70, 40, 10, 10], start=3)
+        for row in aws.iter_rows(min_row=4):
+            for c in row: c.alignment = Alignment(wrap_text=True, vertical='top')
+        ai_summary.log_usage(kpi_folder or KPI_FOLDER or os.path.dirname(os.path.abspath(out_path)), run_id, part,
+                             getattr(client, 'model', 'custom'), ai_rows, AI.get('usd_per_million_input'),
+                             AI.get('usd_per_million_output'), log)
     wb.save(out_path)
     try:
         import getpass; who = getpass.getuser()
     except Exception:
         who = ''
-    run_id = 'R' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')[:-3]   # letters keep Excel from showing it as 2.02611E+16
     chk = {(c[0], c[1]): c for c in checks}
     kpi_rows = []
     for x in summary:

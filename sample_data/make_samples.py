@@ -46,6 +46,16 @@ AGED_STOCK = [
 
 ERP_SHIP_OLD = [("009001", "045120", "1000", "50101/1/1"), ("0361", "097709", "200", "50102/2/1")]
 ERP_SHIP_NEW = [("009001", "045120", "600", "50240/1/1"), ("009002", "045300", "100", "50241/3/2")]
+# One shipment covering three movement requests, with the same part and batch on several releases
+MULTI_MQR = {
+    "erp_shipping_export_mqr1.csv": [("009301", "B7001", "300", "50101/1/1"), ("009301", "B7001", "200", "50102/2/1"),
+                                     ("009302", "B7002", "100", "50101/3/1")],
+    "erp_shipping_export_mqr2.csv": [("009301", "B7001", "150", "50240/1/1"), ("009302", "B7002", "100", "50240/2/1")],
+    "erp_shipping_export_mqr3.csv": [("009301", "B7001", "80", "50300/4/1")],
+}
+MULTI_PACKING = [("009301", "B7001", "500"), ("009301", "B7001", "150"), ("009301", "B7001", "60"),
+                 ("009301", "B7001", "20"), ("009301", "B7001", "10"), ("009302", "B7002", "120"),
+                 ("009302", "B7002", "80")]
 
 
 def main():
@@ -107,6 +117,21 @@ def main():
         for cell in row:
             cell.number_format = "@"
     wb.save(os.path.join(HERE, "packing_list_sample.xlsx"))
+
+    for name, rows in MULTI_MQR.items():
+        with open(os.path.join(HERE, name), "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["PartNum", "LotNum", "Quantity", "Reference"])
+            w.writerows(rows)
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Part Number", "Batch", "Quantity", "SO", "Line", "Rel"])
+    for line in MULTI_PACKING:
+        ws.append(list(line) + ["", "", ""])
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.number_format = "@"
+    wb.save(os.path.join(HERE, "packing_list_multi_mqr_sample.xlsx"))
     print("Sample files written to", HERE)
 
 

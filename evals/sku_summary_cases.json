@@ -1,0 +1,256 @@
+[
+ {
+  "id": "move-not-received",
+  "facts": {
+   "part": "PX-100",
+   "owner": "OWNER_A",
+   "lot": "L5001",
+   "on_hand": {
+    "3PL": 0,
+    "ERP": 50000,
+    "3PL minus ERP": -50000
+   },
+   "history_ties_to_on_hand": {
+    "3PL": "Yes",
+    "ERP": "Yes"
+   },
+   "last_agreed": "start of history",
+   "cause_category": "ERP move into 3PL not received",
+   "likely_cause": "ERP moved it into a 3PL warehouse; no matching 3PL receipt (24/03/2026, +50,000)",
+   "which_system": "Not established: ERP has movements 3PL lacks. Needs 3PL to confirm physically",
+   "quantity_or_attribute": "Quantity",
+   "unmatched_movements": [
+    {
+     "system": "ERP",
+     "date": "24/03/2026",
+     "type": "STK-STK",
+     "qty": 50000,
+     "ref": ""
+    }
+   ],
+   "qty_differs": []
+  },
+  "expect_any": [
+   [
+    "50,000",
+    "50000"
+   ],
+   [
+    "receipt",
+    "received",
+    "receive"
+   ]
+  ],
+  "expect_none": [
+   "STK-STK"
+  ],
+  "email_expect_any": [
+   [
+    "receipt",
+    "received",
+    "delivery",
+    "booked in"
+   ]
+  ]
+ },
+ {
+  "id": "qty-differs",
+  "facts": {
+   "part": "PX-100",
+   "owner": "OWNER_A",
+   "lot": "L5002",
+   "on_hand": {
+    "3PL": 1,
+    "ERP": 3001,
+    "3PL minus ERP": -3000
+   },
+   "history_ties_to_on_hand": {
+    "3PL": "Yes",
+    "ERP": "Yes"
+   },
+   "last_agreed": "start of history",
+   "cause_category": "Qty differs between systems",
+   "likely_cause": "Same movement booked with different quantities: 3PL +1, ERP +3,001 (RCPT-9, 23/03/2026; matched on date and direction, no shared reference)",
+   "which_system": "Not established: both systems booked the movement, with different quantities. Check the physical receipt paperwork",
+   "quantity_or_attribute": "Quantity",
+   "unmatched_movements": [],
+   "qty_differs": [
+    {
+     "ref": "RCPT-9",
+     "3PL": 1,
+     "ERP": 3001,
+     "date": "23/03/2026"
+    }
+   ]
+  },
+  "expect_any": [
+   [
+    "3,001",
+    "3001"
+   ],
+   [
+    "paperwork",
+    "delivery note",
+    "receipt"
+   ]
+  ],
+  "expect_none": [],
+  "email_expect_any": [
+   [
+    "RCPT-9"
+   ],
+   [
+    "paperwork",
+    "delivery note",
+    "count",
+    "physically"
+   ]
+  ]
+ },
+ {
+  "id": "erp-shipment-only",
+  "facts": {
+   "part": "PX-100",
+   "owner": "OWNER_B",
+   "lot": "L5003",
+   "on_hand": {
+    "3PL": 1,
+    "ERP": 0,
+    "3PL minus ERP": 1
+   },
+   "history_ties_to_on_hand": {
+    "3PL": "Yes",
+    "ERP": "Yes"
+   },
+   "last_agreed": "start of history",
+   "cause_category": "ERP shipment not at 3PL",
+   "likely_cause": "Shipped in ERP; no matching 3PL shipment (SO-7781, 28/10/2026, -1)",
+   "which_system": "Not established: ERP has movements 3PL lacks. Needs 3PL to confirm physically",
+   "quantity_or_attribute": "Quantity",
+   "unmatched_movements": [
+    {
+     "system": "ERP",
+     "date": "28/10/2026",
+     "type": "STK-CUS",
+     "qty": -1,
+     "ref": "SO-7781"
+    }
+   ],
+   "qty_differs": []
+  },
+  "expect_any": [
+   [
+    "SO-7781"
+   ],
+   [
+    "ship",
+    "shipped",
+    "dispatch"
+   ]
+  ],
+  "expect_none": [
+   "STK-CUS"
+  ],
+  "email_expect_any": [
+   [
+    "SO-7781"
+   ]
+  ]
+ },
+ {
+  "id": "3pl-shipment-only",
+  "facts": {
+   "part": "PX-100",
+   "owner": "OWNER_A",
+   "lot": "L5004",
+   "on_hand": {
+    "3PL": 0,
+    "ERP": 240,
+    "3PL minus ERP": -240
+   },
+   "history_ties_to_on_hand": {
+    "3PL": "Yes",
+    "ERP": "Yes"
+   },
+   "last_agreed": "start of history",
+   "cause_category": "3PL shipment not in ERP",
+   "likely_cause": "3PL shipped it; no matching shipment in ERP (ORD-4410, 12/09/2026, -240)",
+   "which_system": "Likely ERP: 3PL has movements ERP lacks, and 3PL's trace ties to its on hand",
+   "quantity_or_attribute": "Quantity",
+   "unmatched_movements": [
+    {
+     "system": "3PL",
+     "date": "12/09/2026",
+     "type": "Shipment",
+     "qty": -240,
+     "ref": "ORD-4410"
+    }
+   ],
+   "qty_differs": []
+  },
+  "expect_any": [
+   [
+    "240"
+   ],
+   [
+    "ORD-4410"
+   ]
+  ],
+  "expect_none": [],
+  "email_expect_any": [
+   [
+    "ORD-4410"
+   ]
+  ]
+ },
+ {
+  "id": "owner-move-attribute",
+  "facts": {
+   "part": "PX-100",
+   "owner": "OWNER_A",
+   "lot": "L5005",
+   "on_hand": {
+    "3PL": 0,
+    "ERP": 50,
+    "3PL minus ERP": -50
+   },
+   "history_ties_to_on_hand": {
+    "3PL": "Yes",
+    "ERP": "Yes"
+   },
+   "last_agreed": "start of history",
+   "cause_category": "Owner move not in ERP",
+   "likely_cause": "3PL moved it to another owner; ERP still shows it here (OMPL-39, 14/10/2026, -50)",
+   "which_system": "Not established",
+   "quantity_or_attribute": "Attribute only: the opposite difference is under owner OWNER_B (same lot). No quantity change",
+   "unmatched_movements": [
+    {
+     "system": "3PL",
+     "date": "14/10/2026",
+     "type": "Owner Update",
+     "qty": -50,
+     "ref": "OMPL-39"
+    }
+   ],
+   "qty_differs": []
+  },
+  "expect_any": [
+   [
+    "owner"
+   ],
+   [
+    "50"
+   ]
+  ],
+  "expect_none": [
+   "write off",
+   "write-off"
+  ],
+  "email_expect_any": [
+   [
+    "owner",
+    "account"
+   ]
+  ]
+ }
+]

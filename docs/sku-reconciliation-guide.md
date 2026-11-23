@@ -59,3 +59,11 @@ Every run adds rows to `sku_investigations_log.csv` in the KPI log folder (blank
 - Units aren't converted. If the 3PL counts eaches and the ERP counts boxes, every movement looks different.
 - Owner Update rows are expected as two signed rows, minus from the old owner and plus to the new one.
 - 3PL and ERP dates don't always line up. A posting more than `match_days` apart shows as unmatched.
+
+## Optional AI summary
+
+Set `sku_reconciliation.ai.enabled` to `true` in `config.json` and install the `anthropic` package (`pip install anthropic`), with an `ANTHROPIC_API_KEY` in the environment. Only use a model and account your organisation has approved for this data.
+
+Each run then adds an **AI summary** tab: for every line that differs, a short explanation and a draft email to the 3PL, plus a Checks column. "Passed" means every figure in the text appears in the facts, the email has no ERP codes, and nothing suggests posting stock. Anything else is listed and should be fixed by hand before use. Part numbers, lots and references are masked before sending (`mask_identifiers`), and token use is appended to `ai_usage_log.csv` in the KPI folder. Set `usd_per_million_input` and `usd_per_million_output` to log cost as well.
+
+The AI step never changes the reconciliation itself: the Summary, Timeline and checks are produced the same way with it on or off.

@@ -29,7 +29,7 @@ This repo is a sanitised copy. Company names, file paths, account codes and real
 |------|---------|--------------|
 | [Movement request](apps/movement_request_app.py) | Every movement request and transfer order to the 3PL meant looking up stock line by line in the 3PL's web system, then typing part, batch, quantity and case count into their request template. | Reads the ERP order export, checks stock against the 3PL's daily stock CSV, fills the template, calculates cases from the 3PL's own pack config, and flags any line the 3PL can't cover. Getting the 3PL to email that daily CSV, in place of web lookups, is what made the tool possible. |
 | [Warehouse orders](apps/warehouse_order_app.py) | Orders from the three UK sites were checked by hand against the 3PL stock report, with case counts worked out line by line. | Checks every line against the 3PL's daily stock report, adds case counts, fills in the required date (next working day, or the day after if it's past 2pm), and turns short lines red. |
-| [Pack-out](apps/packout_app.py) | Packing lists came back from the 3PL with no order reference, so each line had to be matched by hand against several movement requests before it could be shipped in the ERP. | Matches part and batch against the movement request exports for that pack-out and fills SO, Line and Release, oldest request first. |
+| [Pack-out](apps/packout_app.py) | Packing lists came back from the 3PL with no order reference. One shipment can cover several movement requests, and the same part and batch can sit on several sales order lines and releases across them, so matching by hand was slow and error-prone. | Treats it as a quantity allocation, not a line match: within one part and batch the units are interchangeable, so it shares the packed quantity across the open releases so every quantity ties. Exact matches first, then exact combinations, then oldest request first, splitting lines where needed. A Check sheet compares packed and released totals per part and batch and flags anything that doesn't tie. |
 | [Stock reconciliation](apps/stock_recon_app.py) | Reconciling the ERP against the 3PL's audit report, or against an onsite stock take, meant lining up thousands of lines by part and lot in Excel and then investigating each difference one at a time. | Matches both lists by owner, part and lot, repairing codes Excel has damaged. Suggests a reason for every difference in both directions and shows the net, which ties back to the report totals. One window covers 3PL reports and onsite count sheets, and every run logs accuracy KPIs for Power BI. [User guide](docs/stock-reconciliation-guide.md). |
 | [Single SKU reconciliation](apps/sku_recon_app.py) | Day-to-day queries on one part meant walking the 3PL's batch trace and the ERP's transaction history side by side to find where they split. | Rebuilds both balances per lot and owner, pairs the movements by order reference and then by quantity and date, and shows the last date they agreed and the movements that don't pair up. Answers the three questions needed before any correction is named. [User guide](docs/sku-reconciliation-guide.md). |
 
@@ -44,6 +44,19 @@ The tools are used by the supply chain team.
 | Pack-out | 1 hr 45 min | 2 min | 11+ a week |
 
 Across 46.4 working weeks at the minimum volumes, that's about 1,985 hours a year.
+
+### Optional AI step: investigation summaries
+
+[`stocktools/ai_summary.py`](stocktools/ai_summary.py) adds one AI step to the single SKU reconciliation: for each line that differs, a model drafts a plain-English explanation for the stock team and a short email to the 3PL. It's off by default (`sku_reconciliation.ai.enabled` in `config.json`).
+
+The step is deliberately small. Matching, balances and causes stay deterministic; the model only writes words about facts the code has already worked out, because those figures end up in audited stock records and AI adds cost and risk to arithmetic.
+
+- **Only lines that differ** are sent, never matching lines.
+- **Identifiers are masked** (part, lot and references become P1, L1, R1) before anything is sent, and restored afterwards.
+- **Every figure in the answer is checked** against the facts it was given. An invented or altered number is flagged on the AI summary tab, as is an ERP code in the 3PL email or any suggestion to post or adjust stock.
+- **Token use is logged** per run to `ai_usage_log.csv`, with cost if prices are configured, so cost is measured rather than guessed.
+
+[`evals/run_sku_summary_eval.py`](evals/run_sku_summary_eval.py) scores the step against hand-written expectations for five kinds of difference (a move the 3PL never received, the same receipt booked with different quantities, shipments in one system only, and an owner move that is attribute only). A deterministic template baseline is included as the floor a model has to beat: it scores 0 of 5, because its 3PL email is generic rather than asking about the specific movement. Run with `--model <model id>` and an `ANTHROPIC_API_KEY` to score a model.
 
 ### Stock provision re-run
 
@@ -98,6 +111,7 @@ python sample_data/make_sku_samples.py
 python apps/movement_request_app.py
 python apps/stock_recon_app.py
 python apps/sku_recon_app.py
+python evals/run_sku_summary_eval.py
 python -m pytest
 ```
 

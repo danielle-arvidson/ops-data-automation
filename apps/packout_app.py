@@ -1,4 +1,4 @@
-"""Pack-out tool: fills SO/Line/Release on a 3PL packing list from ERP exports."""
+"""Pack-out tool: shares a 3PL packing list across the SO/Line/Release lines of one or more movement requests."""
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -19,7 +19,8 @@ class PackoutApp:
         ttk.Button(buttons, text="Clear", command=self.clear).pack(side=tk.LEFT)
         self.listbox = tk.Listbox(box, height=4)
         self.listbox.pack(fill=tk.X, pady=8)
-        ttk.Label(box, text="Add oldest first. Earlier files win when a batch is on several orders.",
+        ttk.Label(box, text="Add every movement request export on this shipment, oldest first.\n"
+                  "Quantities are shared across releases; check the Check sheet for totals that don't tie.",
                   foreground="gray").pack()
         self.win.run_button.config(text="Select packing list and process", command=self.run)
 

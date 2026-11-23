@@ -1,13 +1,25 @@
 """Pack-out SO/Line/Release filler.
 
 The 3PL sends back a packing list with part, batch and quantity but no
-sales order reference. The ERP shipping export has the reference as
-"SO/Line/Release". This matches the two and fills SO, Line and Rel on the
-packing list.
+sales order reference. The ERP shipping exports (one per movement request)
+carry the reference as "SO/Line/Release". One shipment can cover several
+movement requests, and the same part and batch can sit on several sales
+order lines and releases across them.
 
-When one part/batch appears on several order lines, the oldest export
-file wins, then the lowest SO number (first in, first out). An exact
-quantity match overrides that order.
+Within one part and batch the units are interchangeable, so the job is not
+to work out which physical line belongs to which release, but to share the
+packed quantity across the open releases so every quantity ties:
+
+1. Check: total packed vs total released for each part and batch.
+2. Exact: a packed line that equals one release's quantity takes it.
+3. Combination: a packed line that equals the sum of several releases
+   takes them all (smallest set, oldest first).
+4. Oldest first: whatever is left fills releases oldest export first, then
+   lowest SO/Line/Release, splitting packed lines across releases.
+
+Packed quantity with no open release is flagged NO OPEN RELEASE; releases
+left unfilled are listed in the check. A line that already has an SO keeps
+it and uses up that release first.
 """
 import pandas as pd
 from openpyxl import load_workbook
@@ -41,53 +53,143 @@ def _so_number(ref):
     return int(so) if so.isdigit() else 999999
 
 
-def fill(packing, erp):
-    """Fill SO/Line/Rel in place. Returns a summary dict."""
+MAX_COMBO_RELEASES = 12   # search combinations only among this many open releases per part and batch
+
+
+def _qty(v):
+    try:
+        return float(str(v).replace(",", "").strip())
+    except ValueError:
+        return None
+
+
+def _ref_key(ref):
+    parts = [p.strip() for p in str(ref).split("/")]
+    nums = [int(p) if p.isdigit() else 999999 for p in (parts + ["", "", ""])[:3]]
+    return tuple(nums)
+
+
+def _subset(releases, target):
+    """Smallest set of releases whose remaining quantities sum exactly to target, oldest first."""
+    from itertools import combinations
+    pool = [r for r in releases if r["left"] > 0][:MAX_COMBO_RELEASES]
+    for size in range(2, len(pool) + 1):
+        for combo in combinations(pool, size):
+            if abs(sum(r["left"] for r in combo) - target) < 1e-9:
+                return list(combo)
+    return None
+
+
+def allocate(packing, erp):
+    """Share each packed line's quantity across open releases. Returns (rows, checks, summary).
+
+    rows: one dict per output line (packing columns plus Match and Pack line).
+    checks: one dict per part and batch with packed and released totals.
+    """
     for key in ("so", "line", "rel"):
         if PACK[key] not in packing.columns:
             packing[PACK[key]] = ""
+    cols = list(packing.columns)
 
-    summary = {"total": len(packing), "matched": 0, "not_found": 0, "skipped": 0, "by_file": {}}
+    releases = {}
+    for _, r in erp.iterrows():
+        q = _qty(r[ERP["qty"]])
+        if q is None:
+            continue
+        releases.setdefault((r["_part_norm"], r["_lot_norm"]), []).append(dict(
+            ref=str(r[ERP["ref"]]).strip(), left=q, qty=q, order=(r["_priority"], _ref_key(r[ERP["ref"]])),
+            source=r["_source"]))
+    for rel in releases.values():
+        rel.sort(key=lambda x: x["order"])
+
+    summary = {"total": len(packing), "matched": 0, "not_found": 0, "skipped": 0, "split": 0, "by_file": {}}
+    out, todo = {}, {}
     for idx, row in packing.iterrows():
+        part, batch = str(row.get(PACK["part"], "")).strip(), str(row.get(PACK["batch"], "")).strip()
+        key = (normalize_code(part), normalize_code(batch))
+        q = _qty(row.get(PACK["qty"], ""))
         if str(row.get(PACK["so"], "")).strip():
             summary["skipped"] += 1
+            out[idx] = [dict(row, **{"Match": "Already filled", "Pack line": idx + 2})]
+            ref = "/".join(str(row.get(PACK[k], "")).strip() for k in ("so", "line", "rel"))
+            for r in releases.get(key, []):
+                if _ref_key(r["ref"]) == _ref_key(ref) and q:
+                    r["left"] = max(0.0, r["left"] - q)
             continue
-        part = str(row.get(PACK["part"], "")).strip()
-        batch = str(row.get(PACK["batch"], "")).strip()
-        qty = str(row.get(PACK["qty"], "")).strip()
-        if not part or not batch:
+        if not part or not batch or q is None:
+            out[idx] = [dict(row, **{"Match": "Missing part, batch or quantity", "Pack line": idx + 2})]
             continue
+        todo.setdefault(key, []).append([idx, q, []])
 
-        hits = erp[(erp["_part_norm"] == normalize_code(part)) & (erp["_lot_norm"] == normalize_code(batch))]
-        if hits.empty:
-            packing.at[idx, PACK["so"]] = "NOT FOUND"
-            summary["not_found"] += 1
-            continue
+    def take(item, r, amount, how):
+        item[1] -= amount
+        r["left"] -= amount
+        item[2].append((r, amount, how))
 
-        hits = hits.assign(_so=hits[ERP["ref"]].map(_so_number)).sort_values(["_priority", "_so"])
-        chosen = hits.iloc[0]
-        if qty:
-            exact = hits[hits[ERP["qty"]].map(lambda q: codes_match(q, qty))]
-            if not exact.empty:
-                chosen = exact.iloc[0]
+    checks = []
+    for key, items in todo.items():
+        rel = releases.get(key, [])
+        packed = sum(i[1] for i in items)
+        released = sum(r["left"] for r in rel)
+        # 1 exact
+        for item in items:
+            r = next((r for r in rel if r["left"] > 0 and abs(r["left"] - item[1]) < 1e-9 and r["left"] == r["qty"]), None)
+            if r: take(item, r, item[1], "Exact")
+        # 2 combination
+        for item in items:
+            if item[1] > 0:
+                combo = _subset(rel, item[1])
+                if combo:
+                    for r in combo: take(item, r, r["left"], "Combination")
+        # 3 oldest first
+        for item in items:
+            for r in rel:
+                if item[1] <= 0: break
+                if r["left"] > 0: take(item, r, min(item[1], r["left"]), "Oldest first")
+        unfilled = [r for r in rel if r["left"] > 1e-9]
+        over = sum(i[1] for i in items)
+        status = ("Not on any export" if not rel else "Ties" if abs(packed - released) < 1e-9
+                  else "Packed more than released" if packed > released else "Packed less than released")
+        first = packing.loc[items[0][0]]
+        checks.append({"Part": str(first[PACK["part"]]).strip(), "Batch": str(first[PACK["batch"]]).strip(), "Packed": packed, "Released": released,
+                       "Difference": packed - released, "Status": status,
+                       "Releases not fully packed": ", ".join(f"{r['ref']} ({r['left']:g})" for r in unfilled),
+                       "Packed with no release": over})
+        for idx, left, takes in items:
+            base = packing.loc[idx].to_dict()
+            rows = []
+            for r, amount, how in takes:
+                so, line, rl = ([p.strip() for p in r["ref"].split("/")] + ["", "", ""])[:3]
+                rows.append(dict(base, **{PACK["qty"]: f"{amount:g}", PACK["so"]: so, PACK["line"]: line,
+                                          PACK["rel"]: rl, "Match": how, "Pack line": idx + 2}))
+                summary["by_file"][r["source"]] = summary["by_file"].get(r["source"], 0) + 1
+            if left > 1e-9:
+                rows.append(dict(base, **{PACK["qty"]: f"{left:g}", PACK["so"]: "NOT FOUND" if not rel else "NO OPEN RELEASE",
+                                          PACK["line"]: "", PACK["rel"]: "", "Match": "", "Pack line": idx + 2}))
+                summary["not_found"] += 1
+            if takes:
+                summary["matched"] += 1
+            if len(takes) > 1:
+                summary["split"] += 1
+            out[idx] = rows
+    ordered = [r for idx in packing.index for r in out.get(idx, [])]
+    return pd.DataFrame(ordered, columns=cols + ["Match", "Pack line"]), pd.DataFrame(checks), summary
 
-        parts = [p.strip() for p in str(chosen[ERP["ref"]]).split("/")]
-        if len(parts) >= 3:
-            packing.at[idx, PACK["so"]], packing.at[idx, PACK["line"]], packing.at[idx, PACK["rel"]] = parts[:3]
-            summary["matched"] += 1
-            src = chosen["_source"]
-            summary["by_file"][src] = summary["by_file"].get(src, 0) + 1
-        else:
-            packing.at[idx, PACK["so"]] = "INVALID FORMAT"
-            summary["not_found"] += 1
-    return summary
+
+def fill(packing, erp):
+    """Backwards-compatible wrapper: returns the summary of allocate()."""
+    return allocate(packing, erp)[2]
 
 
-def save(packing, output_path):
-    """Write the packing list with borders, centred cells and failed rows highlighted."""
-    packing.to_excel(output_path, index=False)
+def save(packing, output_path, checks=None):
+    """Write the packing list with borders, centred cells and failed rows highlighted,
+    plus a Check sheet of packed vs released totals per part and batch."""
+    with pd.ExcelWriter(output_path) as xw:
+        packing.to_excel(xw, index=False, sheet_name="Packing list")
+        if checks is not None and len(checks):
+            checks.to_excel(xw, index=False, sheet_name="Check")
     wb = load_workbook(output_path)
-    ws = wb.active
+    ws = wb["Packing list"]
     side = Side(style="thin", color="000000")
     border = Border(left=side, right=side, top=side, bottom=side)
     centre = Alignment(horizontal="center", vertical="center")
@@ -108,21 +210,29 @@ def save(packing, output_path):
                     cell.number_format = "0"
                 except (TypeError, ValueError):
                     pass
-        if row[0].row > 1 and ws.cell(row[0].row, so_col).value in ("NOT FOUND", "INVALID FORMAT"):
+        if row[0].row > 1 and ws.cell(row[0].row, so_col).value in ("NOT FOUND", "NO OPEN RELEASE", "INVALID FORMAT"):
             for c in range(1, BORDERED_COLS + 1):
                 ws.cell(row[0].row, c).fill = PINK
 
-    for column in ws.columns:
-        width = max((len(str(c.value)) for c in column if c.value is not None), default=0)
-        ws.column_dimensions[column[0].column_letter].width = min(width + 2, 50)
+    for sheet in wb.worksheets:
+        for column in sheet.columns:
+            width = max((len(str(c.value)) for c in column if c.value is not None), default=0)
+            sheet.column_dimensions[column[0].column_letter].width = min(width + 2, 50)
+        if sheet.title == "Check":
+            for c in sheet[1]: c.font = Font(bold=True)
+            for row in sheet.iter_rows(min_row=2):
+                if row[5].value != "Ties":
+                    for c in row: c.fill = PINK
     wb.save(output_path)
 
 
 def run(erp_paths, packing_path, output_path, log=print):
     erp = load_erp_exports(erp_paths)
     packing = pd.read_excel(packing_path, dtype=str, keep_default_na=False)
-    summary = fill(packing, erp)
-    save(packing, output_path)
-    log(f"Matched {summary['matched']}, not found {summary['not_found']}, "
-        f"already filled {summary['skipped']}")
+    rows, checks, summary = allocate(packing, erp)
+    save(rows, output_path, checks)
+    bad = int((checks["Status"] != "Ties").sum()) if len(checks) else 0
+    log(f"Matched {summary['matched']} packed line(s) ({summary['split']} split across releases), "
+        f"not placed {summary['not_found']}, already filled {summary['skipped']}. "
+        f"Part and batch totals that don't tie: {bad} (see the Check sheet)")
     return {"output": output_path, **summary}

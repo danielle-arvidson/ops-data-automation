@@ -121,6 +121,32 @@ def test_packout(tmp_path):
     assert (result["matched"], result["not_found"], result["skipped"]) == (4, 1, 1)
 
 
+def test_packout_multi_mqr_allocation(tmp_path):
+    """One shipment, three movement requests, the same part and batch on several releases."""
+    out = str(tmp_path / "packed.xlsx")
+    paths = [os.path.join(SAMPLES, f"erp_shipping_export_mqr{i}.csv") for i in (1, 2, 3)]
+    result = packout.run(paths, os.path.join(SAMPLES, "packing_list_multi_mqr_sample.xlsx"), out, log=lambda m: None)
+    df = pd.read_excel(out, sheet_name="Packing list", dtype=str, keep_default_na=False)
+    got = [(r["Pack line"], r["Quantity"], f'{r["SO"]}/{r["Line"]}/{r["Rel"]}', r["Match"]) for _, r in df.iterrows()]
+    assert got == [
+        ("2", "300", "50101/1/1", "Combination"), ("2", "200", "50102/2/1", "Combination"),
+        ("3", "150", "50240/1/1", "Exact"),
+        ("4", "60", "50300/4/1", "Oldest first"),
+        ("5", "20", "50300/4/1", "Oldest first"),
+        ("6", "10", "NO OPEN RELEASE//", ""),
+        ("7", "100", "50101/3/1", "Oldest first"), ("7", "20", "50240/2/1", "Oldest first"),
+        ("8", "80", "50240/2/1", "Oldest first"),
+    ]
+    # every release is filled exactly once, and the over-pack is flagged on the Check sheet
+    placed = df[df["Match"] != ""].groupby(df["SO"] + "/" + df["Line"] + "/" + df["Rel"])["Quantity"].apply(
+        lambda s: sum(float(x) for x in s)).to_dict()
+    assert placed == {"50101/1/1": 300, "50102/2/1": 200, "50240/1/1": 150, "50300/4/1": 80,
+                      "50101/3/1": 100, "50240/2/1": 100}
+    chk = pd.read_excel(out, sheet_name="Check", dtype=str)
+    assert dict(zip(chk["Part"], chk["Status"])) == {"009301": "Packed more than released", "009302": "Ties"}
+    assert result["split"] == 2
+
+
 from stocktools import provision  # noqa: E402
 
 

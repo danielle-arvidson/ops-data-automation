@@ -63,6 +63,14 @@
   "sku_reconciliation": {
     "match_days": 5,
     "kpi_folder": "",
-    "default_owner": ""
+    "default_owner": "",
+    "ai": {
+      "enabled": false,
+      "model": "claude-haiku-5-5",
+      "max_tokens": 600,
+      "mask_identifiers": true,
+      "usd_per_million_input": null,
+      "usd_per_million_output": null
+    }
   }
 }

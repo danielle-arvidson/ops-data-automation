@@ -97,3 +97,59 @@ def test_wrong_part_number_stops_with_clear_error(tmp_path):
     p = str(tmp_path / "trace.xlsx"); wb.save(p)
     with pytest.raises(ValueError, match="It is for REALPART"):
         sku.load_3pl_traces([p], "TYPOPART")
+
+
+# ---- optional AI summary step (fake client: no network, no key)
+from stocktools import ai_summary  # noqa: E402
+
+
+class FakeClient:
+    model = "fake"
+
+    def __init__(self, reply):
+        self.reply, self.seen = reply, []
+
+    def complete(self, system, user):
+        self.seen.append(user)
+        return self.reply, 120, 40
+
+
+def _case():
+    return {"part": "PX-1", "owner": "OWNER_A", "lot": "093519", "on_hand": {"3PL": 1, "ERP": 3001, "3PL minus ERP": -3000},
+            "history_ties_to_on_hand": {"3PL": "Yes", "ERP": "Yes"}, "last_agreed": "start of history",
+            "cause_category": "Qty differs between systems",
+            "likely_cause": "Same movement booked with different quantities: 3PL +1, ERP +3,001 (RCPT-55)",
+            "which_system": "Not established", "quantity_or_attribute": "Quantity",
+            "unmatched_movements": [], "qty_differs": [{"ref": "RCPT-55", "3PL": 1, "ERP": 3001, "date": "23/03/2026"}]}
+
+
+def test_ai_identifiers_masked_and_restored():
+    reply = '{"summary": "P1 lot L1: the 3PL received 1 on R1 but the ERP booked 3,001.", "email": "Please check receipt R1 for lot L1."}'
+    client = FakeClient(reply)
+    rows = ai_summary.summarise([_case()], client, mask_ids=True, log=lambda m: None)
+    assert "PX-1" not in client.seen[0] and "093519" not in client.seen[0] and "RCPT-55" not in client.seen[0]
+    assert rows[0]["result"]["email"] == "Please check receipt RCPT-55 for lot 093519."
+    assert rows[0]["issues"] == []
+
+
+def test_ai_output_checks_catch_invented_figures_codes_and_posting():
+    bad = {"summary": "DT has 3,100 fewer units. Adjust the ERP down by 3,000.",
+           "email": "Your PUR-STK for 3,001 looks wrong."}
+    issues = ai_summary.check_output(bad, _case())
+    assert any("3100" in i for i in issues)
+    assert any("posting or adjusting" in i for i in issues)
+    assert "email contains ERP transaction codes" in issues
+    ok = {"summary": "Do not adjust stock until the paperwork is checked.", "email": "Please check the receipt."}
+    assert ai_summary.check_output(ok, _case()) == []
+
+
+def test_sku_run_writes_ai_sheet_and_usage_log(tmp_path):
+    reply = '{"summary": "The two systems differ on this lot.", "email": "Please check this lot."}'
+    out = str(tmp_path / "ai.xlsx")
+    sku.run(ms.PART, [os.path.join(S, "sku_3pl_trace_sample.xlsx")], os.path.join(S, "sku_erp_history_sample.txt"),
+            out, ms.TPL_ONHAND, ms.ERP_ONHAND, log=lambda m: None, kpi_folder=str(tmp_path), ai_client=FakeClient(reply))
+    from openpyxl import load_workbook
+    ws = load_workbook(out)["AI summary"]
+    assert ws.cell(4, 3).value == "The two systems differ on this lot." and ws.cell(4, 5).value == "Passed"
+    log = open(tmp_path / "ai_usage_log.csv").read().splitlines()
+    assert log[0].startswith("Run ID") and len(log) == 2
