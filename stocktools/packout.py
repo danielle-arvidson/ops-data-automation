@@ -21,7 +21,11 @@ Packed quantity with no open release is flagged NO OPEN RELEASE; releases
 left unfilled are listed in the check. A line that already has an SO keeps
 it and uses up that release first.
 """
+import csv
+import datetime
+import getpass
 import os
+import time
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -373,9 +377,82 @@ def save(packing, output_path, checks=None, unfilled=None):
     wb.save(output_path)
 
 
-def run(erp_paths, packing_path, output_path, log=print, packing=None):
+RUNS_LOG = "packout_runs_log.csv"
+EXCEPTIONS_LOG = "packout_exceptions_log.csv"
+RUNS_HEADER = ["Run ID", "Run date", "Run by", "Customer", "Rolling orders", "Exports loaded", "Packing list from",
+               "Packed lines", "Packed qty", "Lines placed", "Exact", "Combination", "Oldest first", "Lines split",
+               "Lines not placed", "Part and batch checked", "Part and batch not tying", "Releases left off",
+               "Left off needing new order", "Left off staying open", "Left off customer unknown",
+               "Seconds to run", "Manual minutes (parallel run)", "Matched manual (Y/N)", "Notes"]
+EXCEPTIONS_HEADER = ["Run ID", "Run date", "Customer", "Type", "Part", "Batch", "SO/Line/Rel", "Qty", "Detail"]
+
+
+def append_csv(folder, name, header, rows, log=print):
+    """Append rows to a CSV log, header first if the file is new. If the log is open in Excel,
+    the rows go to a dated side file so nothing is lost."""
+    if not rows:
+        return
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError:
+        log(f"KPI log folder {folder} could not be reached. Nothing logged for {name}.")
+        return
+    path = os.path.join(folder, name)
+    try:
+        new = not os.path.exists(path)
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(header)
+            w.writerows(rows)
+    except PermissionError:
+        alt = os.path.join(folder, name.replace(".csv", f"_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"))
+        with open(alt, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(header)
+            w.writerows(rows)
+        log(f"KPI log {name} is open or locked. Rows saved to {os.path.basename(alt)}: add them to the main log later.")
+
+
+def log_kpis(folder, customer, erp_paths, source, packing, rows, checks, summary, seconds,
+             manual_minutes="", matched_manual="", notes="", log=print):
+    """One row per run plus one row per exception, so pack-out performance can be trended:
+    how much is placed automatically, how often the 3PL combines lines, and what is left off by customer."""
+    run_id = "R" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]   # letters stop Excel showing it as a number
+    when = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    # count packed lines, not output rows: a line split across two releases is one line
+    match = rows.drop_duplicates(["Pack line", "Match"])["Match"].value_counts() if len(rows) else {}
+    left = summary["unfilled"]
+    steps = [u["Next step"] for u in left]
+    not_tying = int((checks["Status"] != "Ties").sum()) if len(checks) else 0
+    append_csv(folder, RUNS_LOG, RUNS_HEADER, [[
+        run_id, when, getpass.getuser(), customer or "Not in export",
+        "Y" if customer and customer.upper() in ROLLING_ORDER_CUSTOMERS else "N",
+        len(erp_paths), source, len(packing), f"{sum(_qty(q) or 0 for q in packing[PACK['qty']]):g}",
+        summary["matched"], int(match.get("Exact", 0)), int(match.get("Combination", 0)), int(match.get("Oldest first", 0)),
+        summary["split"], summary["not_found"], len(checks), not_tying, len(left),
+        sum(s.startswith("Not shipped") for s in steps), sum(s.startswith("Stays open") for s in steps),
+        sum(s.startswith("Customer unknown") for s in steps), f"{seconds:.1f}", manual_minutes, matched_manual, notes]], log)
+    exc = []
+    for _, r in rows[rows[PACK["so"]].isin(["NOT FOUND", "NO OPEN RELEASE"])].iterrows():
+        exc.append([run_id, when, customer, "Not placed", r[PACK["part"]], r[PACK["batch"]], "", r[PACK["qty"]], r[PACK["so"]]])
+    for _, c in (checks[checks["Status"] != "Ties"].iterrows() if len(checks) else []):
+        exc.append([run_id, when, customer, "Total not tying", c["Part"], c["Batch"], "", f"{c['Difference']:g}", c["Status"]])
+    for u in left:
+        exc.append([run_id, when, customer, "Left off shipment", u["Part"], u["Batch"], u["SO/Line/Rel"],
+                    f"{u['Left off shipment']:g}", u["Next step"]])
+    append_csv(folder, EXCEPTIONS_LOG, EXCEPTIONS_HEADER, exc, log)
+    log(f"KPI logs updated: run {run_id}, {len(exc)} exception row(s)")
+    return run_id
+
+
+def run(erp_paths, packing_path, output_path, log=print, packing=None, kpi_folder=None,
+        manual_minutes="", matched_manual="", notes=""):
     """packing_path: the 3PL packing list as .xlsx/.csv. Or pass packing as a DataFrame
-    (for example from parse_pasted_packing) and leave packing_path as None."""
+    (for example from parse_pasted_packing) and leave packing_path as None.
+    kpi_folder: if given, append the run to the pack-out KPI logs there."""
+    started = time.time()
+    source = "Pasted" if packing is not None else "File"
     erp = load_erp_exports(erp_paths)
     customer = check_one_customer(erp)
     if packing is None:
@@ -396,4 +473,8 @@ def run(erp_paths, packing_path, output_path, log=print, packing=None):
     if summary["unfilled"]:
         log(f"Releases left off this shipment: {reorder} need a new order, {later} stay open for a later shipment"
             + (f", {unknown} with no customer in the export" if unknown else "") + " (see the Left off shipment sheet)")
-    return {"output": output_path, **summary}
+    run_id = None
+    if kpi_folder:
+        run_id = log_kpis(kpi_folder, customer, erp_paths, source, packing, rows, checks, summary,
+                          time.time() - started, manual_minutes, matched_manual, notes, log)
+    return {"output": output_path, "run_id": run_id, **summary}

@@ -251,3 +251,19 @@ def test_packout_stops_when_exports_are_for_two_customers(tmp_path):
         assert False, "expected a stop"
     except ValueError as e:
         assert "2 customers" in str(e)
+
+
+def test_packout_writes_kpi_logs(tmp_path):
+    erp = tmp_path / "mqr.csv"
+    erp.write_text("PartNum,LotNum,Quantity,Reference,Customer\n"
+                   "PX-1,B1,1,70001/1/1,CUST-A\nPX-1,B1,1,70002/1/1,CUST-A\nPX-2,B2,5,70003/1/1,CUST-A\n")
+    pack = pd.DataFrame([["PX-1", "B1", "2"], ["PX-3", "B3", "4"]], columns=["SKU", "Batch", "Qty"])
+    kpi = tmp_path / "kpi"
+    packout.run([str(erp)], None, str(tmp_path / "out.xlsx"), log=lambda m: None, packing=pack,
+                kpi_folder=str(kpi), manual_minutes="25", matched_manual="Y")
+    runs = pd.read_csv(kpi / "packout_runs_log.csv", dtype=str)
+    r = runs.iloc[0]
+    assert (r["Customer"], r["Packed lines"], r["Packed qty"], r["Combination"], r["Lines not placed"],
+            r["Left off needing new order"], r["Manual minutes (parallel run)"]) == ("CUST-A", "2", "6", "1", "1", "1", "25")
+    exc = pd.read_csv(kpi / "packout_exceptions_log.csv", dtype=str)
+    assert sorted(exc["Type"]) == ["Left off shipment", "Not placed", "Total not tying"]
