@@ -21,6 +21,8 @@ Packed quantity with no open release is flagged NO OPEN RELEASE; releases
 left unfilled are listed in the check. A line that already has an SO keeps
 it and uses up that release first.
 """
+import os
+
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -32,7 +34,15 @@ _P = _config.load().get("packout", {})
 # Customers on rolling orders: a release left off a shipment stays open and ships later.
 # For every other customer, a release left off the shipment has to be ordered again.
 ROLLING_ORDER_CUSTOMERS = {c.strip().upper() for c in _P.get("rolling_order_customers", [])}
-CUSTOMER_COLUMNS = _P.get("customer_columns", ["Customer", "CustID", "CustNum", "Customer Name"])
+CUSTOMER_COLUMNS = _P.get("customer_columns", ["Customer", "CustID", "CustNum", "Customer Name", "tbCustNameHidden"])
+# Column names accepted for each field: the simple export, and the ERP's material queue export
+ERP_ALIASES = {"part": ["PartNum", "txtPartNum"], "lot": ["LotNum", "txtLotNum"],
+               "qty": ["Quantity", "txtQuantity"], "ref": ["Reference", "txtReference"], "uom": ["UOM", "txtIUM"]}
+
+# Column names accepted in a packing list file from the 3PL
+PACK_ALIASES = {"part": ["Part Number", "SKU", "Item No", "Part"], "batch": ["Batch", "Batch No", "Lot"],
+                "qty": ["Quantity", "Qty"]}
+PALLET_ID_DIGITS = 10   # a token this long and all digits starts a new row in a pasted packing list
 
 PACK = {"part": "Part Number", "batch": "Batch", "qty": "Quantity",
         "so": "SO", "line": "Line", "rel": "Rel"}
@@ -41,11 +51,113 @@ BORDERED_COLS = 11
 PINK = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
 
+def customers(erp):
+    """Distinct customer names in the loaded ERP exports (blank ignored)."""
+    col = next((c for c in CUSTOMER_COLUMNS if c in erp.columns), None)
+    if not col:
+        return []
+    return sorted({str(v).strip() for v in erp[col] if str(v).strip()})
+
+
+def check_one_customer(erp):
+    """Each shipment is for one customer. More than one means a wrong export was loaded."""
+    names = customers(erp)
+    if len(names) > 1:
+        by_file = erp.groupby("_source")[next(c for c in CUSTOMER_COLUMNS if c in erp.columns)].first()
+        detail = "; ".join(f"{os.path.basename(f)}: {c}" for f, c in by_file.items())
+        raise ValueError(f"The exports loaded are for {len(names)} customers ({', '.join(names)}). "
+                         f"A shipment is for one customer, so remove the export that doesn't belong. {detail}")
+    return names[0] if names else ""
+
+
+def normalise_packing(packing):
+    """Rename the 3PL's packing list headers (SKU, Qty...) to the names this tool uses."""
+    rename = {}
+    for key, names in PACK_ALIASES.items():
+        if PACK[key] in packing.columns:
+            continue
+        found = next((n for n in names if n in packing.columns), None)
+        if found:
+            rename[found] = PACK[key]
+    packing = packing.rename(columns=rename)
+    missing = [PACK[k] for k in ("part", "batch", "qty") if PACK[k] not in packing.columns]
+    if missing:
+        raise ValueError(f"The packing list has no column for {', '.join(missing)}. "
+                         f"Columns found: {', '.join(map(str, packing.columns))}")
+    return packing
+
+
+def _is_pallet_id(token):
+    return token.isdigit() and len(token) >= PALLET_ID_DIGITS
+
+
+def parse_pasted_packing(text):
+    """Read a packing list table copied from the body of the 3PL's email.
+
+    Works whether the paste arrives tab separated (one row per line) or one cell
+    per line, as Outlook's plain text does. Columns: Pallet ID, Pallet, SKU,
+    Batch, Qty, Weight (KG), Height (CM). Only the first row of each pallet
+    carries the pallet number, weight and height.
+    """
+    cols = ["Pallet ID", "Pallet", PACK["part"], PACK["batch"], PACK["qty"], "Weight (KG)", "Height (CM)"]
+    lines = [l.rstrip("\r") for l in text.splitlines()]
+    # tab separated only if a header row is tab separated (signatures can contain stray tabs)
+    if any("\t" in l and "SKU" in l.upper() for l in lines):
+        rows = []
+        for l in lines:
+            cells = [c.strip() for c in l.split("\t")]
+            if cells and _is_pallet_id(cells[0]):
+                rows.append((cells + [""] * 7)[:7])
+        if not rows:
+            raise ValueError("No rows starting with a pallet ID were found in the pasted text.")
+        return pd.DataFrame(rows, columns=cols)
+    tokens = [t for l in lines for t in l.split()]
+    starts = [i for i, t in enumerate(tokens) if _is_pallet_id(t)]
+    if not starts:
+        raise ValueError("No pallet IDs were found in the pasted text. Copy the table from the email, header row included.")
+    rows, prev = [], None
+    for n, start in enumerate(starts):
+        pid = tokens[start]
+        seg = tokens[start + 1:starts[n + 1] if n + 1 < len(starts) else len(tokens)]
+        # the first row of a pallet carries the pallet number; later rows on the same pallet don't
+        first_row = pid != prev
+        need = 4 if first_row else 3
+        cells, extra = seg[:need], seg[need:]
+        numbers = []
+        for t in extra:
+            if _qty(t) is None:
+                break
+            numbers.append(t)
+        ended = len(numbers) < len(extra)   # text after the row: the table has finished
+        if len(cells) < need or len(numbers) > 2:
+            raise ValueError(f"Pallet {pid}: expected {'pallet number, ' if first_row else ''}SKU, batch and quantity "
+                             f"but found {' '.join(seg[:need + 2]) or 'nothing'}. Check that row in the email.")
+        pallet = cells.pop(0) if first_row else rows[-1][1]
+        sku, batch, qty = cells
+        weight, height = (numbers + ["", ""])[:2]
+        rows.append([pid, pallet, sku, batch, qty, weight, height])
+        prev = pid
+        if ended:
+            break
+    return pd.DataFrame(rows, columns=cols)
+
+
 def load_erp_exports(paths):
     """Combine ERP exports; list order is priority (oldest first)."""
     frames = []
     for priority, path in enumerate(paths, start=1):
         df = pd.read_csv(path, dtype=str, keep_default_na=False)
+        rename = {}
+        for key, names in ERP_ALIASES.items():
+            found = next((n for n in names if n in df.columns), None)
+            target = ERP.get(key, "UOM")
+            if found and found != target and target not in df.columns:
+                rename[found] = target
+        df = df.rename(columns=rename)
+        missing = [ERP[k] for k in ("part", "lot", "qty", "ref") if ERP[k] not in df.columns]
+        if missing:
+            raise ValueError(f"{os.path.basename(path)} has no column for {', '.join(missing)}. "
+                             "Use the ERP shipping or material queue export for each movement request.")
         df["_source"] = path
         df["_priority"] = priority
         frames.append(df)
@@ -261,9 +373,17 @@ def save(packing, output_path, checks=None, unfilled=None):
     wb.save(output_path)
 
 
-def run(erp_paths, packing_path, output_path, log=print):
+def run(erp_paths, packing_path, output_path, log=print, packing=None):
+    """packing_path: the 3PL packing list as .xlsx/.csv. Or pass packing as a DataFrame
+    (for example from parse_pasted_packing) and leave packing_path as None."""
     erp = load_erp_exports(erp_paths)
-    packing = pd.read_excel(packing_path, dtype=str, keep_default_na=False)
+    customer = check_one_customer(erp)
+    if packing is None:
+        packing = (pd.read_csv(packing_path, dtype=str, keep_default_na=False) if str(packing_path).lower().endswith(".csv")
+                   else pd.read_excel(packing_path, dtype=str, keep_default_na=False))
+    packing = normalise_packing(packing.reset_index(drop=True))
+    if customer:
+        log(f"Customer: {customer} ({'rolling orders' if customer.upper() in ROLLING_ORDER_CUSTOMERS else 'releases left off need a new order'})")
     rows, checks, summary = allocate(packing, erp)
     save(rows, output_path, checks, summary["unfilled"])
     bad = int((checks["Status"] != "Ties").sum()) if len(checks) else 0

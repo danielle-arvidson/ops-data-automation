@@ -152,24 +152,26 @@ def test_packout_releases_left_off_shipment(tmp_path, monkeypatch):
     monkeypatch.setattr(packout, "ROLLING_ORDER_CUSTOMERS", {"INTERCO-US"})
     erp = tmp_path / "mqr.csv"
     erp.write_text("PartNum,LotNum,Quantity,Reference,Customer\n"
-                   "009401,B1,100,60001/1/1,INTERCO-US\n"
+                   "009401,B1,100,60001/1/1,CUST-A\n"
                    "009401,B1,50,60002/1/1,CUST-A\n"
-                   "009402,B2,40,60003/2/1,CUST-B\n"
-                   "009403,B3,10,60004/1/1,\n")
+                   "009402,B2,40,60003/2/1,CUST-A\n")
     from openpyxl import Workbook
     wb = Workbook(); ws = wb.active
     ws.append(["Part Number", "Batch", "Quantity", "SO", "Line", "Rel"])
-    ws.append(["009401", "B1", "120", "", "", ""])      # 100 + 20 of 50: CUST-A short by 30
+    ws.append(["009401", "B1", "120", "", "", ""])      # 100 + 20 of 50: short by 30
     wb.save(tmp_path / "pack.xlsx")
     out = str(tmp_path / "out.xlsx")
-    result = packout.run([str(erp)], str(tmp_path / "pack.xlsx"), out, log=lambda m: None)
+    packout.run([str(erp)], str(tmp_path / "pack.xlsx"), out, log=lambda m: None)
     left = pd.read_excel(out, sheet_name="Left off shipment", dtype=str)
     got = {r["SO/Line/Rel"]: (r["Left off shipment"], r["Next step"]) for _, r in left.iterrows()}
     assert got == {
         "60002/1/1": ("30", "Not shipped: needs a new order"),
         "60003/2/1": ("40", "Not shipped: needs a new order"),
-        "60004/1/1": ("10", "Customer unknown: check whether it ships later or needs a new order"),
     }
+    erp.write_text("PartNum,LotNum,Quantity,Reference,Customer\n009401,B1,130,60004/1/1,\n")
+    packout.run([str(erp)], str(tmp_path / "pack.xlsx"), out, log=lambda m: None)
+    left = pd.read_excel(out, sheet_name="Left off shipment", dtype=str)
+    assert left["Next step"].tolist() == ["Customer unknown: check whether it ships later or needs a new order"]
     erp.write_text("PartNum,LotNum,Quantity,Reference,Customer\n009401,B1,200,60001/1/1,INTERCO-US\n")
     packout.run([str(erp)], str(tmp_path / "pack.xlsx"), out, log=lambda m: None)
     left = pd.read_excel(out, sheet_name="Left off shipment", dtype=str)
@@ -204,3 +206,48 @@ def test_provision_rerun():
 def test_provision_movement():
     assert provision.movement(1050.0, 1200.0) == {
         "prior": 1200.0, "current": 1050.0, "change": -150.0, "change_pct": -12.5}
+
+
+def test_packout_reads_material_queue_export(tmp_path):
+    """The ERP material queue export uses txt-prefixed columns and multi-line address cells."""
+    erp = tmp_path / "queue.csv"
+    erp.write_text('txtCalcCustName2,txtQuantity,txtIUM,txtPartNum,tbCustNameHidden,txtNeedByDate,txtReference,txtLotNum\n'
+                   '"Example GmbH\nStreet 1\nTown",1,CA,PX-9,Example GmbH,16/10/2026,70001/15/1,96719\n'
+                   '"Example GmbH\nStreet 1\nTown",1,CA,PX-9,Example GmbH,11/12/2026,70002/12/1,96719\n')
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active
+    ws.append(["Part Number", "Batch", "Quantity", "SO", "Line", "Rel"])
+    ws.append(["PX-9", "096719", "2", "", "", ""])
+    wb.save(tmp_path / "pack.xlsx")
+    out = str(tmp_path / "out.xlsx")
+    packout.run([str(erp)], str(tmp_path / "pack.xlsx"), out, log=lambda m: None)
+    df = pd.read_excel(out, sheet_name="Packing list", dtype=str)
+    assert [(r["SO"], r["Line"], r["Rel"], r["Quantity"]) for _, r in df.iterrows()] == [
+        ("70001", "15", "1", "1"), ("70002", "12", "1", "1")]
+
+
+def test_packout_reads_packing_list_pasted_from_email():
+    """Outlook plain text puts one cell per line; blank cells are a space; the sign-off has a long phone number."""
+    cells = ["Pallet ID", "Pallet", "SKU", "Batch", "Qty", "Weight (KG)", "Height (CM)",
+             "0000000000000001", "1", "PX-1", "13612", "320", "163", "107",
+             "0000000000000001", " ", "PX-9", "96719", "2", " ", " ",
+             "0000000000000002", "2", "PX-2", "97819", "1,040", "152", "141",
+             "Thank you", "Contracts Coordinator", "01170000000000"]
+    df = packout.parse_pasted_packing("\r\n\r\n".join(cells))
+    assert df[["Pallet ID", "Pallet", "Part Number", "Batch", "Quantity"]].values.tolist() == [
+        ["0000000000000001", "1", "PX-1", "13612", "320"],
+        ["0000000000000001", "1", "PX-9", "96719", "2"],
+        ["0000000000000002", "2", "PX-2", "97819", "1,040"]]
+    tab = "Pallet ID\tPallet\tSKU\tBatch\tQty\tWeight (KG)\tHeight (CM)\n0000000000000001\t1\tPX-1\t13612\t320\t163\t107\n"
+    assert packout.parse_pasted_packing(tab)["Part Number"].tolist() == ["PX-1"]
+
+
+def test_packout_stops_when_exports_are_for_two_customers(tmp_path):
+    for name, cust in (("a.csv", "Example GmbH"), ("b.csv", "Example Inc")):
+        (tmp_path / name).write_text(f"txtPartNum,txtLotNum,txtQuantity,txtReference,tbCustNameHidden\nPX-9,1,1,70001/1/1,{cust}\n")
+    erp = packout.load_erp_exports([str(tmp_path / "a.csv"), str(tmp_path / "b.csv")])
+    try:
+        packout.check_one_customer(erp)
+        assert False, "expected a stop"
+    except ValueError as e:
+        assert "2 customers" in str(e)

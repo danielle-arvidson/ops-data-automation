@@ -81,7 +81,8 @@
       "Customer",
       "CustID",
       "CustNum",
-      "Customer Name"
+      "Customer Name",
+      "tbCustNameHidden"
     ]
   }
 }
