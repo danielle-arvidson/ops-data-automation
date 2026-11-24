@@ -14,7 +14,7 @@ from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill
 
-from . import packconfig
+from . import kpi, packconfig
 
 COLUMN_ALIASES = {
     "part": ["PartNum", "Part Num", "Part Number"],
@@ -52,8 +52,34 @@ def stock_status(free, requested):
     return "NO STOCK", "none"
 
 
-def build(erp_csv, template, output_dir, inventory=None, case_sku_pattern=None, log=print):
-    """Build the movement request. Returns a summary dict."""
+RUNS_LOG = "movement_request_runs_log.csv"
+ISSUES_LOG = "movement_request_issues_log.csv"
+RUNS_HEADER = ["Run ID", "Run date", "Run by", "Customer", "Lines", "Requested qty", "Cases written",
+               "Lines short", "Lines with no stock", "Stock checked", "3PL report time", "Report age (hours)"]
+ISSUES_HEADER = ["Run ID", "Run date", "Customer", "Part", "Lot", "Requested", "Available", "Short by", "Type"]
+
+
+def log_kpis(folder, customer, lines, requested, cases_written, issues, inventory, log=print):
+    """Shortfalls per request show where stock positioning at the 3PL lets orders down;
+    report age shows how stale the stock picture was when the request went out."""
+    run_id, (when, user) = kpi.new_run_id(), kpi.stamp()
+    no_stock = sum(1 for i in issues if not i["available"])
+    age = ""
+    if inventory is not None and getattr(inventory, "report_time", None):
+        age = f"{(datetime.now() - inventory.report_time).total_seconds() / 3600:.1f}"
+    kpi.append_csv(folder, RUNS_LOG, RUNS_HEADER, [[
+        run_id, when, user, customer, lines, f"{requested:g}", cases_written, len(issues), no_stock,
+        "Y" if inventory is not None else "N",
+        inventory.report_time.strftime("%d/%m/%Y %H:%M") if inventory is not None else "", age]], log)
+    kpi.append_csv(folder, ISSUES_LOG, ISSUES_HEADER, [[
+        run_id, when, customer, i["part"], i["lot"], f"{i['requested']:g}", f"{i['available']:g}",
+        f"{i['requested'] - i['available']:g}", "No stock" if not i["available"] else "Short"] for i in issues], log)
+    return run_id
+
+
+def build(erp_csv, template, output_dir, inventory=None, case_sku_pattern=None, log=print, kpi_folder=None):
+    """Build the movement request. Returns a summary dict.
+    kpi_folder: where the KPI logs go (see kpi.folder); False to skip logging."""
     df = pd.read_csv(erp_csv, dtype=str)
     cols = {key: find_column(df, names) for key, names in COLUMN_ALIASES.items()}
     missing = [k for k, v in cols.items() if v is None]
@@ -127,5 +153,10 @@ def build(erp_csv, template, output_dir, inventory=None, case_sku_pattern=None, 
     if issues:
         log(f"{len(issues)} stock issue(s). 3PL report time: {report_time}; "
             "anything booked in since then won't show.")
-    return {"output": out, "customer": customer, "lines": len(df),
+    run_id = None
+    if kpi_folder is not False:
+        requested = sum(parse_qty(q) for q in df[cols["qty"]])
+        run_id = log_kpis(kpi.folder("movement_request", kpi_folder, out), customer, len(df), requested,
+                          cases_written, issues, inventory, log)
+    return {"output": out, "customer": customer, "lines": len(df), "run_id": run_id,
             "cases_written": cases_written, "issues": issues, "report_time": report_time}

@@ -21,9 +21,6 @@ Packed quantity with no open release is flagged NO OPEN RELEASE; releases
 left unfilled are listed in the check. A line that already has an SO keeps
 it and uses up that release first.
 """
-import csv
-import datetime
-import getpass
 import os
 import time
 
@@ -32,6 +29,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from . import config as _config
+from . import kpi
+from .kpi import append_csv
 from .codes import codes_match, normalize_code
 
 _P = _config.load().get("packout", {})
@@ -387,46 +386,19 @@ RUNS_HEADER = ["Run ID", "Run date", "Run by", "Customer", "Rolling orders", "Ex
 EXCEPTIONS_HEADER = ["Run ID", "Run date", "Customer", "Type", "Part", "Batch", "SO/Line/Rel", "Qty", "Detail"]
 
 
-def append_csv(folder, name, header, rows, log=print):
-    """Append rows to a CSV log, header first if the file is new. If the log is open in Excel,
-    the rows go to a dated side file so nothing is lost."""
-    if not rows:
-        return
-    try:
-        os.makedirs(folder, exist_ok=True)
-    except OSError:
-        log(f"KPI log folder {folder} could not be reached. Nothing logged for {name}.")
-        return
-    path = os.path.join(folder, name)
-    try:
-        new = not os.path.exists(path)
-        with open(path, "a", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            if new:
-                w.writerow(header)
-            w.writerows(rows)
-    except PermissionError:
-        alt = os.path.join(folder, name.replace(".csv", f"_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"))
-        with open(alt, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(header)
-            w.writerows(rows)
-        log(f"KPI log {name} is open or locked. Rows saved to {os.path.basename(alt)}: add them to the main log later.")
-
-
 def log_kpis(folder, customer, erp_paths, source, packing, rows, checks, summary, seconds,
              manual_minutes="", matched_manual="", notes="", log=print):
     """One row per run plus one row per exception, so pack-out performance can be trended:
     how much is placed automatically, how often the 3PL combines lines, and what is left off by customer."""
-    run_id = "R" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]   # letters stop Excel showing it as a number
-    when = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    run_id = kpi.new_run_id()
+    when, user = kpi.stamp()
     # count packed lines, not output rows: a line split across two releases is one line
     match = rows.drop_duplicates(["Pack line", "Match"])["Match"].value_counts() if len(rows) else {}
     left = summary["unfilled"]
     steps = [u["Next step"] for u in left]
     not_tying = int((checks["Status"] != "Ties").sum()) if len(checks) else 0
     append_csv(folder, RUNS_LOG, RUNS_HEADER, [[
-        run_id, when, getpass.getuser(), customer or "Not in export",
+        run_id, when, user, customer or "Not in export",
         "Y" if customer and customer.upper() in ROLLING_ORDER_CUSTOMERS else "N",
         len(erp_paths), source, len(packing), f"{sum(_qty(q) or 0 for q in packing[PACK['qty']]):g}",
         summary["matched"], int(match.get("Exact", 0)), int(match.get("Combination", 0)), int(match.get("Oldest first", 0)),
@@ -450,7 +422,7 @@ def run(erp_paths, packing_path, output_path, log=print, packing=None, kpi_folde
         manual_minutes="", matched_manual="", notes=""):
     """packing_path: the 3PL packing list as .xlsx/.csv. Or pass packing as a DataFrame
     (for example from parse_pasted_packing) and leave packing_path as None.
-    kpi_folder: if given, append the run to the pack-out KPI logs there."""
+    kpi_folder: where the KPI logs go (see kpi.folder); False to skip logging."""
     started = time.time()
     source = "Pasted" if packing is not None else "File"
     erp = load_erp_exports(erp_paths)
@@ -474,7 +446,7 @@ def run(erp_paths, packing_path, output_path, log=print, packing=None, kpi_folde
         log(f"Releases left off this shipment: {reorder} need a new order, {later} stay open for a later shipment"
             + (f", {unknown} with no customer in the export" if unknown else "") + " (see the Left off shipment sheet)")
     run_id = None
-    if kpi_folder:
-        run_id = log_kpis(kpi_folder, customer, erp_paths, source, packing, rows, checks, summary,
+    if kpi_folder is not False:
+        run_id = log_kpis(kpi.folder("packout", kpi_folder, output_path), customer, erp_paths, source, packing, rows, checks, summary,
                           time.time() - started, manual_minutes, matched_manual, notes, log)
     return {"output": output_path, "run_id": run_id, **summary}

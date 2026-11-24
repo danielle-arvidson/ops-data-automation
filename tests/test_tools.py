@@ -267,3 +267,19 @@ def test_packout_writes_kpi_logs(tmp_path):
             r["Left off needing new order"], r["Manual minutes (parallel run)"]) == ("CUST-A", "2", "6", "1", "1", "1", "25")
     exc = pd.read_csv(kpi / "packout_exceptions_log.csv", dtype=str)
     assert sorted(exc["Type"]) == ["Left off shipment", "Not placed", "Total not tying"]
+
+
+def test_movement_request_and_warehouse_order_kpi_logs(tmp_path, inventory):
+    kpi = str(tmp_path / "kpi")
+    movement_request.build(os.path.join(SAMPLES, "erp_order_export_sample.csv"),
+                           os.path.join(SAMPLES, "movement_request_template.xlsx"), str(tmp_path),
+                           inventory=inventory, case_sku_pattern=".(CS).", log=lambda m: None, kpi_folder=kpi)
+    runs = pd.read_csv(os.path.join(kpi, "movement_request_runs_log.csv"), dtype=str).iloc[0]
+    issues = pd.read_csv(os.path.join(kpi, "movement_request_issues_log.csv"), dtype=str)
+    assert (runs["Lines short"], runs["Stock checked"]) == ("2", "Y")
+    assert issues["Part"].tolist() == ["009002", "009004"]
+    warehouse_orders.process(os.path.join(SAMPLES, "warehouse_order_sample.xlsx"), inventory,
+                             str(tmp_path / "out.xlsx"), now=datetime(2026, 11, 19, 9), log=lambda m: None, kpi_folder=kpi)
+    w = pd.read_csv(os.path.join(kpi, "warehouse_order_runs_log.csv"), dtype=str).iloc[0]
+    assert (w["Lines"], w["OK"], w["Short"], w["Not found"], w["Missing data"]) == ("5", "2", "1", "1", "1")
+    assert len(pd.read_csv(os.path.join(kpi, "warehouse_order_issues_log.csv"))) == 3

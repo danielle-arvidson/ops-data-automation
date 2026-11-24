@@ -1,4 +1,5 @@
 {
+  "kpi_folder": "",
   "paths": {
     "inventory_folder": "sample_data",
     "movement_request_template": "sample_data/movement_request_template.xlsx",
@@ -83,6 +84,13 @@
       "CustNum",
       "Customer Name",
       "tbCustNameHidden"
-    ]
+    ],
+    "kpi_folder": ""
+  },
+  "movement_request": {
+    "kpi_folder": ""
+  },
+  "warehouse_orders": {
+    "kpi_folder": ""
   }
 }

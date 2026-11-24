@@ -10,6 +10,7 @@ This repo is the automation I built for that work:
 - Power Automate flows that file 3PL reports automatically and give the master data team a single tracked request queue.
 - A Power BI stock take reconciliation report, and an Excel approval form that flags write-offs already covered by finance provision.
 - A [business case for every project](docs/business-case.md): why it exists, what it saves, and how each figure was worked out, about £43,700 a year in released capacity from the three Python tools alone.
+- [KPIs for every tool](docs/kpis.md): each run is logged against the business decision it supports (stock accuracy, 3PL performance, order fulfilment risk, master data quality, hours saved), feeding one monthly scorecard.
 - [Case studies](case-studies/) of analysis and control design: a cycle count coverage review, requirements extraction for the SAP migration, and rules for using AI assistants on controlled data.
 
 Tools: Python (pandas, openpyxl, tkinter, pytest), Power Automate cloud and Desktop, Power BI, Excel, SharePoint, Microsoft Forms, Epicor Kinetic.
