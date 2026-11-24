@@ -9,7 +9,7 @@ This repo is the automation I built for that work:
 - Three Python desktop tools that cut measured time per request from between 25 minutes and 1 hour 45 minutes down to 2 minutes or less, about 1,985 hours a year at minimum volumes.
 - Power Automate flows that file 3PL reports automatically and give the master data team a single tracked request queue.
 - A Power BI stock take reconciliation report, and an Excel approval form that flags write-offs already covered by finance provision.
-- A [business case for every project](docs/business-case.md): why it exists, what it saves, and how each figure was worked out, about £43,700 a year in released capacity from the three Python tools alone.
+- A [business case for every project](docs/business-case.md): why it exists, what it saves, and how each figure was worked out, about £36,300 a year in released capacity from the three Python tools alone.
 - [KPIs for every tool](docs/kpis.md): each run is logged against the business decision it supports (stock accuracy, 3PL performance, order fulfilment risk, master data quality, hours saved), feeding one monthly scorecard.
 - [Case studies](case-studies/) of analysis and control design: a cycle count coverage review, requirements extraction and a weekly part priority report for the SAP migration, and rules for using AI assistants on controlled data.
 
@@ -45,7 +45,7 @@ The tools are used by the supply chain team.
 | Warehouse orders | 25 min | 30 sec | 10+ a week |
 | Pack-out | 1 hr 45 min | 2 min | 11+ a week |
 
-Across 46.4 working weeks at the minimum volumes, that's about 1,985 hours a year, about £43,700 of released capacity. See the [business case](docs/business-case.md) for the basis and the other projects.
+Across 46.4 working weeks at the minimum volumes, that's about 1,985 hours a year, about £36,300 of released capacity. See the [business case](docs/business-case.md) for the basis and the other projects.
 
 ### Optional AI step: investigation summaries
 
