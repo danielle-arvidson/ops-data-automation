@@ -19,11 +19,31 @@ The proposed fix was to give every no-usage part a countable code and add a mont
 
 Status: step 1 (extraction) complete.
 
-I'm one of three leads for the company's move from Epicor Kinetic to SAP. Before anyone writes data quality rules, the existing requirements have to be pulled out of the documents that already govern part creation.
+I'm carrying out the UK data migration for the company's move from Epicor Kinetic to SAP. Before anyone writes data quality rules, the existing requirements have to be pulled out of the documents that already govern part creation.
 
 I built a field-by-field register from 30 work instructions and procedures and 5 workbooks. Each row gives the requirement, the lifecycle state it applies to (manufactured, purchased, development), its source document, and whether a query can test it. The register also logs 15 places where documents contradict each other and lists what isn't documented at all. It deliberately proposes no rules yet, so the requirements can be agreed before the rules are written.
 
 Alongside it I proposed a design for running data quality rules as a single ERP query with a defect count, controls at the point of part creation, and a part creation log generated from the system change log instead of kept by hand. That design wasn't taken forward because it was judged too broad for the programme it was put to.
+
+## Weekly active part report for ERP migration priority
+
+Status: delivered; run weekly by hand.
+
+My manager decides the order in which part numbers move to SAP. To make that decision he needed the same six counts every week: active UK parts, parts holding stock, and parts with no stock grouped by how recently they were last used.
+
+I built one ERP query (Epicor BAQ) that does the whole classification:
+
+- **Part** gives every active part. The company code already limits it to UK sites, so no site filter is needed.
+- **Part transactions** are joined with "all rows from Part", so parts that have never moved still appear. "Used" means a material issue, a miscellaneous issue or a customer shipment. I took that definition from the query behind the finance provision, so the migration report and the stock provision agree on what counts as dormant. Moves between bins and warehouses don't count.
+- **Part bins** give on-hand stock, so the query no longer needs a separate stock export.
+
+The first version used fixed cutoff dates. Once it became a weekly report I asked whether the windows should roll forward, and my manager confirmed they should: last used within 1, 3 and 6 months of the run date. A seventh bucket was added later using the part creation date, so new parts that haven't been used yet aren't counted as dormant.
+
+The results go into an Excel workbook with a Summary sheet, a History sheet stored as values so past weeks never recalculate when new data is pasted, and the first one-off report kept as a baseline. Its later bucket counts aren't compared with the weekly ones because the method changed, and the History sheet says so. A check cell confirms the buckets add up to the total.
+
+In the first week, active parts were 35 higher than the baseline. Comparing the two part lists showed 36 new development parts for one product and 1 part made inactive, so the change was traced rather than explained away.
+
+Scheduled export needs IT access that wasn't available, so the query is run and pasted by hand each week.
 
 ## Packing spec review checklist
 

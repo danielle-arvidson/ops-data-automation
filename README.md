@@ -2,7 +2,7 @@
 
 ## Summary
 
-I'm a Stock and Data Integrity Manager at a regulated UK medical device manufacturer (ISO 13485, FDA 21 CFR 820). I'm responsible for inventory accuracy across three sites and an outsourced warehouse, and for supply chain master data in Epicor Kinetic. I'm also one of three leads on the company's move from Epicor to SAP.
+I'm a Stock and Data Integrity Manager at a regulated UK medical device manufacturer (ISO 13485, FDA 21 CFR 820). I'm responsible for inventory accuracy across three sites and an outsourced warehouse, and for supply chain master data in Epicor Kinetic. I'm also carrying out the UK data migration for the company's move from Epicor to SAP.
 
 This repo is the automation I built for that work:
 
@@ -11,7 +11,7 @@ This repo is the automation I built for that work:
 - A Power BI stock take reconciliation report, and an Excel approval form that flags write-offs already covered by finance provision.
 - A [business case for every project](docs/business-case.md): why it exists, what it saves, and how each figure was worked out, about £43,700 a year in released capacity from the three Python tools alone.
 - [KPIs for every tool](docs/kpis.md): each run is logged against the business decision it supports (stock accuracy, 3PL performance, order fulfilment risk, master data quality, hours saved), feeding one monthly scorecard.
-- [Case studies](case-studies/) of analysis and control design: a cycle count coverage review, requirements extraction for the SAP migration, and rules for using AI assistants on controlled data.
+- [Case studies](case-studies/) of analysis and control design: a cycle count coverage review, requirements extraction and a weekly part priority report for the SAP migration, and rules for using AI assistants on controlled data.
 
 Tools: Python (pandas, openpyxl, tkinter, pytest), Power Automate cloud and Desktop, Power BI, Excel, SharePoint, Microsoft Forms, Epicor Kinetic.
 
