@@ -147,6 +147,36 @@ def test_packout_multi_mqr_allocation(tmp_path):
     assert result["split"] == 2
 
 
+def test_packout_releases_left_off_shipment(tmp_path, monkeypatch):
+    """Rolling-order customer: release stays open. Any other customer: needs a new order."""
+    monkeypatch.setattr(packout, "ROLLING_ORDER_CUSTOMERS", {"INTERCO-US"})
+    erp = tmp_path / "mqr.csv"
+    erp.write_text("PartNum,LotNum,Quantity,Reference,Customer\n"
+                   "009401,B1,100,60001/1/1,INTERCO-US\n"
+                   "009401,B1,50,60002/1/1,CUST-A\n"
+                   "009402,B2,40,60003/2/1,CUST-B\n"
+                   "009403,B3,10,60004/1/1,\n")
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active
+    ws.append(["Part Number", "Batch", "Quantity", "SO", "Line", "Rel"])
+    ws.append(["009401", "B1", "120", "", "", ""])      # 100 + 20 of 50: CUST-A short by 30
+    wb.save(tmp_path / "pack.xlsx")
+    out = str(tmp_path / "out.xlsx")
+    result = packout.run([str(erp)], str(tmp_path / "pack.xlsx"), out, log=lambda m: None)
+    left = pd.read_excel(out, sheet_name="Left off shipment", dtype=str)
+    got = {r["SO/Line/Rel"]: (r["Left off shipment"], r["Next step"]) for _, r in left.iterrows()}
+    assert got == {
+        "60002/1/1": ("30", "Not shipped: needs a new order"),
+        "60003/2/1": ("40", "Not shipped: needs a new order"),
+        "60004/1/1": ("10", "Customer unknown: check whether it ships later or needs a new order"),
+    }
+    erp.write_text("PartNum,LotNum,Quantity,Reference,Customer\n009401,B1,200,60001/1/1,INTERCO-US\n")
+    packout.run([str(erp)], str(tmp_path / "pack.xlsx"), out, log=lambda m: None)
+    left = pd.read_excel(out, sheet_name="Left off shipment", dtype=str)
+    assert left.iloc[0]["Next step"] == "Stays open: ships on a later shipment (rolling orders)"
+    assert left.iloc[0]["Left off shipment"] == "80"
+
+
 from stocktools import provision  # noqa: E402
 
 

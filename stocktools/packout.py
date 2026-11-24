@@ -25,7 +25,14 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from . import config as _config
 from .codes import codes_match, normalize_code
+
+_P = _config.load().get("packout", {})
+# Customers on rolling orders: a release left off a shipment stays open and ships later.
+# For every other customer, a release left off the shipment has to be ordered again.
+ROLLING_ORDER_CUSTOMERS = {c.strip().upper() for c in _P.get("rolling_order_customers", [])}
+CUSTOMER_COLUMNS = _P.get("customer_columns", ["Customer", "CustID", "CustNum", "Customer Name"])
 
 PACK = {"part": "Part Number", "batch": "Batch", "qty": "Quantity",
         "so": "SO", "line": "Line", "rel": "Rel"}
@@ -92,13 +99,15 @@ def allocate(packing, erp):
     cols = list(packing.columns)
 
     releases = {}
+    cust_col = next((c for c in CUSTOMER_COLUMNS if c in erp.columns), None)
     for _, r in erp.iterrows():
         q = _qty(r[ERP["qty"]])
         if q is None:
             continue
         releases.setdefault((r["_part_norm"], r["_lot_norm"]), []).append(dict(
             ref=str(r[ERP["ref"]]).strip(), left=q, qty=q, order=(r["_priority"], _ref_key(r[ERP["ref"]])),
-            source=r["_source"]))
+            source=r["_source"], part=str(r[ERP["part"]]).strip(), lot=str(r[ERP["lot"]]).strip(),
+            customer=str(r[cust_col]).strip() if cust_col else ""))
     for rel in releases.values():
         rel.sort(key=lambda x: x["order"])
 
@@ -173,7 +182,26 @@ def allocate(packing, erp):
                 summary["split"] += 1
             out[idx] = rows
     ordered = [r for idx in packing.index for r in out.get(idx, [])]
+    unfilled = []
+    for rel in releases.values():
+        for r in rel:
+            if r["left"] > 1e-9:
+                unfilled.append({"SO/Line/Rel": r["ref"], "Part": r["part"], "Batch": r["lot"],
+                                 "Customer": r["customer"] or "Not in export", "Released": r["qty"],
+                                 "Packed": r["qty"] - r["left"], "Left off shipment": r["left"],
+                                 "Next step": release_action(r["customer"])})
+    unfilled.sort(key=lambda u: (u["Next step"], u["SO/Line/Rel"]))
+    summary["unfilled"] = unfilled
     return pd.DataFrame(ordered, columns=cols + ["Match", "Pack line"]), pd.DataFrame(checks), summary
+
+
+def release_action(customer):
+    """What happens to a release left off this shipment."""
+    if not customer:
+        return "Customer unknown: check whether it ships later or needs a new order"
+    if customer.strip().upper() in ROLLING_ORDER_CUSTOMERS:
+        return "Stays open: ships on a later shipment (rolling orders)"
+    return "Not shipped: needs a new order"
 
 
 def fill(packing, erp):
@@ -181,13 +209,15 @@ def fill(packing, erp):
     return allocate(packing, erp)[2]
 
 
-def save(packing, output_path, checks=None):
+def save(packing, output_path, checks=None, unfilled=None):
     """Write the packing list with borders, centred cells and failed rows highlighted,
     plus a Check sheet of packed vs released totals per part and batch."""
     with pd.ExcelWriter(output_path) as xw:
         packing.to_excel(xw, index=False, sheet_name="Packing list")
         if checks is not None and len(checks):
             checks.to_excel(xw, index=False, sheet_name="Check")
+        if unfilled:
+            pd.DataFrame(unfilled).to_excel(xw, index=False, sheet_name="Left off shipment")
     wb = load_workbook(output_path)
     ws = wb["Packing list"]
     side = Side(style="thin", color="000000")
@@ -218,6 +248,11 @@ def save(packing, output_path, checks=None):
         for column in sheet.columns:
             width = max((len(str(c.value)) for c in column if c.value is not None), default=0)
             sheet.column_dimensions[column[0].column_letter].width = min(width + 2, 50)
+        if sheet.title == "Left off shipment":
+            for c in sheet[1]: c.font = Font(bold=True)
+            for row in sheet.iter_rows(min_row=2):
+                if not str(row[7].value).startswith("Stays open"):
+                    for c in row: c.fill = PINK
         if sheet.title == "Check":
             for c in sheet[1]: c.font = Font(bold=True)
             for row in sheet.iter_rows(min_row=2):
@@ -230,9 +265,15 @@ def run(erp_paths, packing_path, output_path, log=print):
     erp = load_erp_exports(erp_paths)
     packing = pd.read_excel(packing_path, dtype=str, keep_default_na=False)
     rows, checks, summary = allocate(packing, erp)
-    save(rows, output_path, checks)
+    save(rows, output_path, checks, summary["unfilled"])
     bad = int((checks["Status"] != "Ties").sum()) if len(checks) else 0
     log(f"Matched {summary['matched']} packed line(s) ({summary['split']} split across releases), "
         f"not placed {summary['not_found']}, already filled {summary['skipped']}. "
         f"Part and batch totals that don't tie: {bad} (see the Check sheet)")
+    reorder = sum(1 for u in summary["unfilled"] if u["Next step"].startswith("Not shipped"))
+    later = sum(1 for u in summary["unfilled"] if u["Next step"].startswith("Stays open"))
+    unknown = len(summary["unfilled"]) - reorder - later
+    if summary["unfilled"]:
+        log(f"Releases left off this shipment: {reorder} need a new order, {later} stay open for a later shipment"
+            + (f", {unknown} with no customer in the export" if unknown else "") + " (see the Left off shipment sheet)")
     return {"output": output_path, **summary}

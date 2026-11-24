@@ -72,5 +72,16 @@
       "usd_per_million_input": null,
       "usd_per_million_output": null
     }
+  },
+  "packout": {
+    "rolling_order_customers": [
+      "INTERCO-US"
+    ],
+    "customer_columns": [
+      "Customer",
+      "CustID",
+      "CustNum",
+      "Customer Name"
+    ]
   }
 }

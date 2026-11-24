@@ -9,6 +9,7 @@ This repo is the automation I built for that work:
 - Three Python desktop tools that cut measured time per request from between 25 minutes and 1 hour 45 minutes down to 2 minutes or less, about 1,985 hours a year at minimum volumes.
 - Power Automate flows that file 3PL reports automatically and give the master data team a single tracked request queue.
 - A Power BI stock take reconciliation report, and an Excel approval form that flags write-offs already covered by finance provision.
+- A [business case for every project](docs/business-case.md): why it exists, what it saves, and how each figure was worked out, about £43,700 a year in released capacity from the three Python tools alone.
 - [Case studies](case-studies/) of analysis and control design: a cycle count coverage review, requirements extraction for the SAP migration, and rules for using AI assistants on controlled data.
 
 Tools: Python (pandas, openpyxl, tkinter, pytest), Power Automate cloud and Desktop, Power BI, Excel, SharePoint, Microsoft Forms, Epicor Kinetic.
@@ -29,7 +30,7 @@ This repo is a sanitised copy. Company names, file paths, account codes and real
 |------|---------|--------------|
 | [Movement request](apps/movement_request_app.py) | Every movement request and transfer order to the 3PL meant looking up stock line by line in the 3PL's web system, then typing part, batch, quantity and case count into their request template. | Reads the ERP order export, checks stock against the 3PL's daily stock CSV, fills the template, calculates cases from the 3PL's own pack config, and flags any line the 3PL can't cover. Getting the 3PL to email that daily CSV, in place of web lookups, is what made the tool possible. |
 | [Warehouse orders](apps/warehouse_order_app.py) | Orders from the three UK sites were checked by hand against the 3PL stock report, with case counts worked out line by line. | Checks every line against the 3PL's daily stock report, adds case counts, fills in the required date (next working day, or the day after if it's past 2pm), and turns short lines red. |
-| [Pack-out](apps/packout_app.py) | Packing lists came back from the 3PL with no order reference. One shipment can cover several movement requests, and the same part and batch can sit on several sales order lines and releases across them, so matching by hand was slow and error-prone. | Treats it as a quantity allocation, not a line match: within one part and batch the units are interchangeable, so it shares the packed quantity across the open releases so every quantity ties. Exact matches first, then exact combinations, then oldest request first, splitting lines where needed. A Check sheet compares packed and released totals per part and batch and flags anything that doesn't tie. |
+| [Pack-out](apps/packout_app.py) | Packing lists came back from the 3PL with no order reference. One shipment can cover several movement requests, and the same part and batch can sit on several sales order lines and releases across them, so matching by hand was slow and error-prone. | Treats it as a quantity allocation, not a line match: within one part and batch the units are interchangeable, so it shares the packed quantity across the open releases so every quantity ties. Exact matches first, then exact combinations, then oldest request first, splitting lines where needed. A Check sheet compares packed and released totals per part and batch and flags anything that doesn't tie. A "Left off shipment" sheet lists releases not on this shipment: for a customer on rolling orders they stay open and ship later, for any other customer they need a new order, so they're caught on the day. |
 | [Stock reconciliation](apps/stock_recon_app.py) | Reconciling the ERP against the 3PL's audit report, or against an onsite stock take, meant lining up thousands of lines by part and lot in Excel and then investigating each difference one at a time. | Matches both lists by owner, part and lot, repairing codes Excel has damaged. Suggests a reason for every difference in both directions and shows the net, which ties back to the report totals. One window covers 3PL reports and onsite count sheets, and every run logs accuracy KPIs for Power BI. [User guide](docs/stock-reconciliation-guide.md). |
 | [Single SKU reconciliation](apps/sku_recon_app.py) | Day-to-day queries on one part meant walking the 3PL's batch trace and the ERP's transaction history side by side to find where they split. | Rebuilds both balances per lot and owner, pairs the movements by order reference and then by quantity and date, and shows the last date they agreed and the movements that don't pair up. Answers the three questions needed before any correction is named. [User guide](docs/sku-reconciliation-guide.md). |
 
@@ -43,7 +44,7 @@ The tools are used by the supply chain team.
 | Warehouse orders | 25 min | 30 sec | 10+ a week |
 | Pack-out | 1 hr 45 min | 2 min | 11+ a week |
 
-Across 46.4 working weeks at the minimum volumes, that's about 1,985 hours a year.
+Across 46.4 working weeks at the minimum volumes, that's about 1,985 hours a year, about £43,700 of released capacity. See the [business case](docs/business-case.md) for the basis and the other projects.
 
 ### Optional AI step: investigation summaries
 
@@ -94,7 +95,7 @@ Shared logic is in `stocktools/`, kept separate from the GUI so it can be tested
 
 These work in Outlook, SharePoint and the shared drive, and the data request queue also picks up notification emails from the quality management system. Neither one connects to the ERP.
 
-- [3PL report filing](power-automate/3pl-report-filing/): a Power Automate Desktop flow that files a dozen daily and weekly 3PL report types from a shared inbox into dated folders.
+- [3PL report filing](power-automate/3pl-report-filing/): a Power Automate Desktop flow that files 15 daily and weekly 3PL report types from a shared inbox into dated folders.
 - [Data request intake](power-automate/data-request-intake/): Microsoft Form, SharePoint List and four cloud flows (intake, quality-system follow-ups, assignment and completion emails, lead-time and on-time tracking) that replaced email and Teams requests to the master data team with a single tracked queue.
 
 ## Case studies
