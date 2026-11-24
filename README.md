@@ -14,7 +14,7 @@ This repo is the automation I built for that work:
 
 Tools: Python (pandas, openpyxl, tkinter, pytest), Power Automate cloud and Desktop, Power BI, Excel, SharePoint, Microsoft Forms, Epicor Kinetic.
 
-I build with AI assistants. The process design, requirements, testing against real data and corrections are mine; the AI drafts code and documents to that spec.
+I build with AI assistants. The process design, requirements, testing against real data and corrections are mine; the AI drafts code and documents to that spec. The tools themselves don't need AI to run, to avoid per-use cost, keep company data off outside services, and avoid the energy use of a model where a script will do. The reasoning is in the [business case](docs/business-case.md#why-these-tools-run-without-ai).
 
 ## About this repo
 

@@ -8,6 +8,17 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 - **Money** is hours saved at a loaded labour cost of about £22.02 an hour (salary plus employer National Insurance and pension). It is capacity released for other work, not cash saved.
 - **Development cost** was £0 beyond my own time. Everything uses open-source Python or the Microsoft 365 licences the business already had.
 
+## Why these tools run without AI
+
+I build with AI assistants, but I decided that none of these tools should need an AI model to run. Each one is ordinary code that runs the same way on a laptop with no internet connection. The reasons:
+
+- **Cost.** A model charges for every request it handles. These tools run dozens of times a week, and matching, arithmetic and allocation need no model at all, so paying per run would add a cost every week for no benefit.
+- **Data security.** The data is stock levels, batch numbers, customers and costs from a regulated manufacturer. Keeping the tools offline means none of it is sent to an outside service, and there is no data-sharing agreement or approval to manage.
+- **Environmental impact.** Running a large model uses far more energy than running a short script. Using one for work a few lines of code can do adds energy use with nothing gained.
+- **Same answer every time.** These figures end up in shipments, stock records and audit evidence. Code gives the same result from the same input and can be tested and explained line by line; a model's output can vary and has to be checked.
+
+Where AI does help, with unstructured text that rules can't handle, it's added as a small optional step that is off by default. The one example in this repo, [investigation summaries](../README.md#optional-ai-step-investigation-summaries), is built around the same concerns: only lines that differ are sent, part numbers and references are masked before sending, every figure in the answer is checked, and token use is logged so the cost is measured.
+
 ## Summary
 
 | Project | What it saves | Annual value | Status |
@@ -34,6 +45,8 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 
 **Result (measured).** 43.5 minutes to 1 minute per request. At 1,299 requests a year that is 920 hours, about £20,300.
 
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
+
 ### Warehouse order tool
 
 **Problem.** Orders from three UK sites were checked by hand against the 3PL stock report, with case counts worked out line by line.
@@ -41,6 +54,8 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 **Why it matters.** Short lines found late hold up the sites; case counts worked out by dividing quantities were often wrong.
 
 **Result (measured).** 25 minutes to 30 seconds per order. At 464 orders a year that is 190 hours, about £4,200.
+
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
 
 ### Pack-out tool
 
@@ -52,6 +67,8 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 
 **Errors avoided (estimated).** Across the three tools, an estimated £5,000 a year: transcription errors causing wrong shipments (£500 to £2,000 an incident), leading zeros lost from part and batch codes, wrong case counts, and missed lines.
 
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
+
 ### Stock reconciliation tool
 
 **Problem.** Reconciling the ERP against the 3PL's audit report, or against an onsite stock take, meant lining up thousands of lines in Excel and investigating each difference.
@@ -59,6 +76,8 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 **Why it matters.** The reconciliation supports audit, year-end and the finance stock valuation. A difference with no explained reason is a finding.
 
 **Result (estimated).** A manual reconciliation takes an estimated 4.5 to 6 days; the tool saves 3 to 3.5 of them a run (22.5 to 26 hours). At 2 to 4 runs a year that is 45 to 105 hours, about £1,000 to £2,300. Each run also logs accuracy KPIs, so the trend is measured from now on.
+
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
 
 ### Single SKU reconciliation tool
 
@@ -68,6 +87,8 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 
 **Result (not yet measured).** Every run logs the investigation, its cause and, once closed, the date resolved. Time to resolve will come from that log.
 
+**AI at runtime.** None in the reconciliation itself. An optional AI summary step can be switched on; it is off by default.
+
 ## Controls and reporting
 
 ### Stock provision re-run
@@ -76,17 +97,23 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 
 **Savings.** Not a time saving; the value is an accurate, auditable figure.
 
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
+
 ### Adjustment approval form
 
 **Why it matters.** A write-off on stock already covered by the finance provision counts the same loss twice. The form flags it before the approver signs.
 
 **Savings.** Not measured. Each prevented double count is worth the value of the line.
 
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
+
 ### Stock take Power BI report
 
 **Why it matters.** Tracks every count discrepancy from count to correction and checks posted corrections against the ERP, so nothing is corrected twice or missed.
 
 **Savings.** Not yet measured.
+
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
 
 ## Power Automate
 
@@ -96,8 +123,12 @@ Why each tool exists, what it saves, and how the figure was worked out. Every fi
 
 **Savings.** Not yet measured. Time per day saved is the figure to add.
 
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
+
 ### Data request intake
 
 **Why it matters.** Requests to the master data team came by email, chat and phone, with no record of what was asked, when, or whether it was done. One queue gives lead time and on-time figures for the first time.
 
 **Savings.** Not yet measured. Requests a month and lead time will come from the list once it has run for a while.
+
+**AI at runtime.** None. See [why these tools run without AI](#why-these-tools-run-without-ai).
