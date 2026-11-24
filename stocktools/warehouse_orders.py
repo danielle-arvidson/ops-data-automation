@@ -34,11 +34,19 @@ def find_header_row(ws, max_scan=10):
     raise ValueError("Could not find a header row containing 'Item No'")
 
 
+def _issue_type(msg):
+    msg = str(msg)
+    if msg == "NOT FOUND": return "Not found"
+    if msg.startswith("SHORT"): return "Short"
+    if "Pack Config" in msg: return "Invalid pack config"
+    return "Missing data" if msg == "Missing data" else "Other"
+
+
 RUNS_LOG = "warehouse_order_runs_log.csv"
 ISSUES_LOG = "warehouse_order_issues_log.csv"
-RUNS_HEADER = ["Run ID", "Run date", "Run by", "Order file", "Lines", "OK", "Short", "Not found",
+RUNS_HEADER = ["Run ID", "Run date", "Run by", "Order file", "3PL report age (hours)", "Lines", "OK", "Short", "Not found",
                "Invalid pack config", "Missing data", "Date Required filled"]
-ISSUES_HEADER = ["Run ID", "Run date", "Order file", "Row", "Item", "Batch", "Qty", "Status", "Detail"]
+ISSUES_HEADER = ["Run ID", "Run date", "Order file", "Row", "Item", "Batch", "Qty", "Status", "Type", "Detail"]
 
 
 def process(order_path, inventory, output_path, now=None, log=print, kpi_folder=None):
@@ -102,11 +110,13 @@ def process(order_path, inventory, output_path, now=None, log=print, kpi_folder=
         run_id, (when, user) = kpi.new_run_id(), kpi.stamp()
         name = os.path.basename(order_path)
         detail = [str(i[5]) for i in issues]
+        rt = getattr(inventory, "report_time", None)
+        age = f"{(datetime.now() - rt).total_seconds() / 3600:.1f}" if rt else ""
         folder = kpi.folder("warehouse_orders", kpi_folder, output_path)
         # invalid pack configs are a master data measure: each one is a line someone works out by hand
         kpi.append_csv(folder, RUNS_LOG, RUNS_HEADER, [[
-            run_id, when, user, name, sum(counts.values()), counts["OK"], sum(d.startswith("SHORT") for d in detail),
+            run_id, when, user, name, age, sum(counts.values()), counts["OK"], sum(d.startswith("SHORT") for d in detail),
             detail.count("NOT FOUND"), sum("Pack Config" in d for d in detail), detail.count("Missing data"), dates_filled]], log)
-        kpi.append_csv(folder, ISSUES_LOG, ISSUES_HEADER, [[run_id, when, name, r, item, batch, qty, status, msg]
+        kpi.append_csv(folder, ISSUES_LOG, ISSUES_HEADER, [[run_id, when, name, r, item, batch, qty, status, _issue_type(msg), msg]
                                                            for r, item, batch, qty, status, msg in issues], log)
     return {"output": output_path, "run_id": run_id, **counts}

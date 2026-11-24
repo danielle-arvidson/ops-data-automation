@@ -21,7 +21,7 @@ I build with AI assistants. The process design, requirements, testing against re
 
 The business runs on Epicor Kinetic, and finished goods are stored at a third-party logistics (3PL) warehouse that runs its own warehouse system. Most of the daily work sat in the gap between the two: exporting from the ERP, cross-checking against the 3PL's stock report, and retyping the result into the 3PL's spreadsheets.
 
-The Python tools remove most of that retyping. They are written for non-technical colleagues: each one is a small desktop window, compiled to a single `.exe` with PyInstaller and run from a shared drive.
+The Python tools remove most of that retyping. They are written for non-technical colleagues: each one is a small desktop window, run from a shared drive by double-clicking the script (saved as `.pyw` so no console window opens). A PyInstaller `.exe` build is there for PCs without Python.
 
 This repo is a sanitised copy. Company names, file paths, account codes and real part numbers have been replaced, and everything in `sample_data/` is synthetic.
 
